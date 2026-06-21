@@ -18,6 +18,7 @@ let isAdmin = false;
 let busy = false;
 let payMethod = "cash"; // 설립 결제수단
 let foundForm = { name: "", sector: "fintech", strategy: "stable", slogan: "" };
+let photoMode = false; // 라이브 오피스 포토(스냅샷) 모드
 
 boot();
 async function boot() {
@@ -124,9 +125,13 @@ function dashboardTab() {
   const ipo = co.ipoReadiness, ns = nextStage(co, bank);
   const bl = bank.businessLoan || {};
   const owed = int(bl.principal) + int(bl.interest);
+  if (photoMode) return photoView(co, bank);
   return `${eventBanner()}
     <div class="co-grid">
-      <div class="co-card span2">${hqVisual(co)}
+      <div class="co-card span2 office-card">
+        <h3>라이브 오피스 <span class="co-tag">${SECTORS[co.sector].icon} ${SECTORS[co.sector].label} · ${STAGE_LABEL[co.stage]}</span>
+          <button class="co-btn ghost small" data-act="photo" style="float:right">📷 스냅샷</button></h3>
+        ${liveOffice(co, bank)}
         <div class="co-quick">
           <button class="co-btn primary" data-act="settle">📊 실적 정산</button>
           <button class="co-btn" data-tab="employees">👥 직원</button>
@@ -134,6 +139,7 @@ function dashboardTab() {
           ${ns ? `<button class="co-btn gold" data-act="promote">⬆️ ${STAGE_LABEL[ns]} 승급</button>` : ""}
         </div>
       </div>
+      <div class="co-card office-status">${officeStatusPanel(co, bank)}</div>
       <div class="co-card">
         <h3>경영 지표</h3>
         ${row("회사 가치", won(co.companyValue))}
@@ -164,6 +170,145 @@ function dashboardTab() {
 }
 function cardStateText(c) { c = c || {}; if (!c.enabled) return "미발급"; if (c.lost) return "분실"; if (c.suspended) return "정지"; if (c.overdue) return "미납"; return "정상"; }
 function sectorMini(s) { const p = SECTORS[s]; return `<div class="co-card sector-mini"><div class="sm-ico">${p.icon}</div><b>${p.label}</b><small>${esc(p.note)}</small></div>`; }
+
+// ════════════ v3.1 라이브 오피스 (CSS/SVG/emoji 자체 구현 · Firebase 쓰기 없음) ════════════
+// 직원 타입별 시각/행동/말풍선. 좌표/움직임은 로컬에서만, 저장하지 않음.
+const EMP_VIS = {
+  dev:        { e: "💻", cls: "dev",        act: "typing",      bub: "코드 작성 중" },
+  marketer:   { e: "📣", cls: "marketer",   act: "presenting",  bub: "신규 캠페인 준비 중" },
+  sales:      { e: "🤝", cls: "sales",      act: "walking",     bub: "고객 미팅 준비 중" },
+  account:    { e: "🧮", cls: "account",    act: "typing",      bub: "비용 정산 중" },
+  risk:       { e: "🧯", cls: "risk",       act: "checking",    bub: "리스크 점검 중" },
+  researcher: { e: "🔭", cls: "researcher", act: "researching", bub: "IPO 자료 검토 중" },
+  ops:        { e: "🛠️", cls: "ops",        act: "walking",     bub: "사무실 순찰 중" },
+  brand:      { e: "✨", cls: "brand",       act: "presenting",  bub: "브랜드 지표 상승 중" },
+};
+const FAC_OBJ = { office: "🏢", server: "🖥️", lab: "🧪", marketing: "📈", accounting: "📒", security: "🔒" };
+const MAX_AVATARS = 16;
+
+function flattenEmployees(co) {
+  const list = [];
+  for (const t of EMPLOYEE_IDS) {
+    const e = (co.employees || {})[t] || {};
+    const n = Math.max(0, int(e.count)), lv = Math.max(1, int(e.level));
+    for (let i = 0; i < n; i++) list.push({ type: t, level: lv });
+  }
+  return list;
+}
+function avatar(emp, i, withBubble) {
+  const v = EMP_VIS[emp.type] || EMP_VIS.dev;
+  return `<div class="av av-${v.cls} act-${v.act}" style="--d:${(i % 8) * 0.35}s">
+    <div class="av-person"><span class="av-head"></span><span class="av-torso"></span></div>
+    <span class="av-badge">${v.e}</span>${emp.level > 1 ? `<i class="av-lv">Lv${emp.level}</i>` : ""}
+    ${withBubble ? `<span class="av-bubble">${v.bub}</span>` : ""}
+  </div>`;
+}
+function liveOffice(co, bank) {
+  const black = (bank || {}).vipTier === "BLACK";
+  const all = flattenEmployees(co), total = all.length;
+  const shown = all.slice(0, MAX_AVATARS), extra = total - shown.length;
+  const sitters = shown.filter((e) => (EMP_VIS[e.type] || {}).act !== "walking");
+  const walkers = shown.filter((e) => (EMP_VIS[e.type] || {}).act === "walking");
+  const officeLv = int(((co.facilities || {}).office || {}).level);
+  const deskCount = Math.max(sitters.length, officeLv * 2 + 3, 4);
+  // 책상(모니터 + 앉은 직원)
+  const desks = [];
+  for (let i = 0; i < Math.min(deskCount, 12); i++) {
+    const emp = sitters[i];
+    desks.push(`<div class="desk ${emp ? "occupied" : ""}"><span class="monitor ${emp && EMP_VIS[emp.type].act === "typing" ? "on" : ""}"></span>${emp ? avatar(emp, i, i < 3) : ""}</div>`);
+  }
+  // 시설 오브젝트(레벨>0 표시, 0이면 흐릿한 placeholder)
+  const facs = FACILITY_IDS.map((t) => {
+    const lv = int(((co.facilities || {})[t] || {}).level);
+    const hot = (t === "server" && ["fintech", "game", "security"].includes(co.sector)) || (t === "lab" && ["bio", "robot", "semicon"].includes(co.sector));
+    return `<div class="fac-obj ${lv > 0 ? "lv" + Math.min(4, lv) : "locked"} ${hot ? "hot" : ""}" title="${esc(FACILITIES[t].label)} Lv.${lv}"><span class="fo-ico">${FAC_OBJ[t]}</span><i>${FACILITIES[t].label}</i>${lv > 0 ? `<b>Lv.${lv}</b>` : `<b class="muted">잠김</b>`}</div>`;
+  }).join("");
+  return `<div class="office stage-${co.stage} sector-${co.sector} ${black ? "black" : ""}" aria-label="라이브 오피스">
+    <div class="office-deco"></div>
+    <div class="office-floor">
+      <div class="desk-grid">${desks.join("")}</div>
+      ${walkers.length ? `<div class="walk-lane">${walkers.map((e, i) => avatar(e, i, i === 0)).join("")}</div>` : ""}
+      <div class="meeting-zone"><span class="board"></span>${shown.find((e) => e.type === "marketer" || e.type === "brand") ? `<span class="board-dot"></span>` : ""}</div>
+    </div>
+    <div class="fac-shelf">${facs}</div>
+    ${total === 0 ? `<div class="office-empty">🪑 텅 빈 사무실 — <b>직원을 고용해 회사를 움직여 보세요</b></div>` : extra > 0 ? `<div class="office-more">+${extra}명 근무 중</div>` : ""}
+    <div class="office-tag">게임머니 기반 타이쿤 오피스</div>
+  </div>`;
+}
+// 라이브 오피스 상태/추천 패널
+function officeStatusPanel(co, bank) {
+  const ev = state.event || {};
+  const emp = empCount(co), fac = facilityTotal(co);
+  const activity = co.companyCash > 0 && emp > 0 ? "활발" : emp > 0 ? "유지" : "정지";
+  const facRate = Math.min(100, Math.round((fac / (FACILITY_IDS.length * 3)) * 100));
+  const owed = bank.businessLoan ? int(bank.businessLoan.principal) + int(bank.businessLoan.interest) : 0;
+  const recs = [];
+  if (emp === 0) recs.push("직원을 고용해 회사를 가동하세요.");
+  if (co.companyCash <= 0) recs.push("회사 자금이 부족합니다. 출자/사업대출을 검토하세요.");
+  if (co.riskScore > 60) recs.push("리스크가 높습니다. 보안실 또는 리스크 매니저를 강화하세요.");
+  if (fac < 4) recs.push("시설 업그레이드 여지가 있습니다.");
+  if (co.ipoReadiness >= 70 && co.stage !== "LISTED") recs.push("IPO 준비도 70%↑ — 상장 심사 준비를 시작하세요.");
+  if (ev.type === "lowrate") recs.push("저금리 이벤트 중 — 사업대출 조건이 유리합니다.");
+  if (ev.type === "highrate" || ev.type === "caution") recs.push("금융 경계 분위기 — 고액 대출/카드 사용에 주의하세요.");
+  if (!recs.length) recs.push("직원들이 안정적으로 업무 중입니다.");
+  const moods = { 활발: "활기찬 사무실 🌟", 유지: "차분한 사무실 🙂", 정지: "조용한 사무실 😴" };
+  return `<h3>오늘의 사무실</h3>
+    <div class="co-row"><span>분위기</span><b>${moods[activity]}</b></div>
+    <div class="co-row"><span>직원 활동도</span><b>${emp}명 · ${activity}</b></div>
+    ${gauge("시설 가동률", facRate, facRate >= 60 ? "ok" : "")}
+    <div class="co-row"><span>리스크 경보</span><b class="${co.riskScore > 60 ? "warn" : "ok"}">${co.riskScore > 60 ? "주의" : "안정"}</b></div>
+    <div class="co-row"><span>Bank 이벤트</span><b>${esc(ev.title || "—")}</b></div>
+    <div class="co-row"><span>사업대출 부담</span><b class="${owed > 0 ? "warn" : ""}">${owed > 0 ? won(owed) : "없음"}</b></div>
+    <div class="office-recs"><b>다음 추천 행동</b><ul>${recs.slice(0, 3).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>`;
+}
+// 포토(스냅샷) 모드 — 패널 숨기고 오피스만 깔끔히
+function photoView(co, bank) {
+  return `<div class="photo-wrap">
+    <div class="co-card office-card photo">
+      <div class="photo-head"><div><b>${esc(co.name)}</b><small>${SECTORS[co.sector].icon} ${SECTORS[co.sector].label} · ${STAGE_LABEL[co.stage]}</small></div>
+        <button class="co-btn ghost small" data-act="photo">닫기</button></div>
+      ${liveOffice(co, bank)}
+      <div class="photo-stats">
+        <div><span>회사 가치</span><b>${won(co.companyValue)}</b></div>
+        <div><span>IPO 준비도</span><b>${int(co.ipoReadiness)}%</b></div>
+        <div><span>직원</span><b>${empCount(co)}명</b></div>
+        <div><span>단계</span><b>${STAGE_LABEL[co.stage]}</b></div>
+      </div>
+      <p class="co-note">내 회사 스냅샷 · 게임머니 기반 타이쿤입니다.</p>
+    </div>
+  </div>`;
+}
+// 정산 결과 카운트업 오버레이
+function showSettleResult(st) {
+  try {
+    const dim = document.createElement("div");
+    dim.className = "co-settle-dim";
+    const good = st.profit >= 0;
+    dim.innerHTML = `<div class="co-settle ${good ? "good" : "bad"}">
+      <h3>${good ? "📈 실적 정산 완료" : "📉 실적 정산 · 손실 주의"}</h3>
+      <div class="cs-rows">
+        <div><span>매출</span><b class="ok">+${won(st.revenue)}</b></div>
+        <div><span>비용</span><b class="warn">−${won(st.cost)}</b></div>
+        <div class="cs-profit"><span>순이익</span><b class="cs-count ${good ? "ok" : "warn"}" data-to="${st.profit}">${good ? "+" : "−"}${won(0)}</b></div>
+        <div><span>회사가치</span><b class="ok">+${won(st.valueGain)}</b></div>
+      </div>
+      <button class="co-btn primary" data-settle-close>확인</button>
+    </div>`;
+    document.body.appendChild(dim);
+    const close = () => dim.remove();
+    dim.querySelector("[data-settle-close]").onclick = close;
+    dim.addEventListener("click", (e) => { if (e.target === dim) close(); });
+    const el = dim.querySelector(".cs-count");
+    const target = Math.abs(int(st.profit)), sign = st.profit >= 0 ? "+" : "−";
+    if (prefersReduced() || target === 0) { el.textContent = sign + won(target); }
+    else {
+      const start = performance.now(), dur = 700;
+      const step = (now) => { const p = Math.min(1, (now - start) / dur); el.textContent = sign + won(Math.round(target * p)); if (p < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    }
+    setTimeout(() => { if (document.body.contains(dim)) close(); }, 6000);
+  } catch (_) { /* 연출 실패는 기능에 영향 없음 */ }
+}
 
 // ── 회사정보/설립 ──
 function companyTab() {
@@ -312,13 +457,28 @@ function bind() {
 }
 function syncFoundInputs() { const n = document.getElementById("foName"), s = document.getElementById("foSlogan"); if (n) foundForm.name = n.value; if (s) foundForm.slogan = s.value; }
 
+// 실적 정산 — 오피스 셔머 + 결과 카운트업(연출 실패해도 정산 자체는 기존 로직 유지)
+async function doSettle() {
+  if (busy) return; busy = true;
+  const off = document.querySelector(".office"); if (off) off.classList.add("settling");
+  let preview = null;
+  try { preview = Co.computeSettle(state.company, Date.now(), state.event); } catch (_) {}
+  try {
+    await Co.settleNow(state.uid, state);
+    await reload();
+    if (preview && preview.applied) showSettleResult(preview); else toast("정산 완료", "ok");
+  } catch (e) { toast((e && e.message) || "정산할 내용이 없습니다.", "err"); }
+  finally { busy = false; }
+}
+
 function onAct(a) {
   if (a === "found") {
     syncFoundInputs();
     const amt = foundCost(state.bank);
     return highValueAct(amt, "설립 심사 중...", () => Co.foundCompany(state.uid, { ...foundForm, payMethod }, state));
   }
-  if (a === "settle") return act(() => Co.settleNow(state.uid, state));
+  if (a === "photo") { photoMode = !photoMode; window.scrollTo(0, 0); render(); return; }
+  if (a === "settle") return doSettle();
   if (a === "promote") return act(() => Co.promoteStage(state.uid, state));
   if (a === "invest") { const v = fieldVal("moveAmt"); return highValueAct(v, "금고 이체 처리 중...", () => Co.investToCompany(state.uid, v, state)); }
   if (a === "withdraw") { const v = fieldVal("moveAmt"); return highValueAct(v, "인출 처리 중...", () => Co.withdrawFromCompany(state.uid, v, state)); }
