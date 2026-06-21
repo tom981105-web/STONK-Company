@@ -19,6 +19,8 @@ let busy = false;
 let payMethod = "cash"; // 설립 결제수단
 let foundForm = { name: "", sector: "fintech", strategy: "stable", slogan: "" };
 let photoMode = false; // 라이브 오피스 포토(스냅샷) 모드
+let hireAnim = null;   // 직원 입장 연출 transient(저장 없음)
+let facAnim = null;    // 시설 공사중 연출 transient(저장 없음)
 
 boot();
 async function boot() {
@@ -195,45 +197,136 @@ function flattenEmployees(co) {
   }
   return list;
 }
-function avatar(emp, i, withBubble) {
+// v3.2: 구역(% 좌표, .office-stage 기준) + 직원 자유 배치(seed로 결정적)
+const ZONES = {
+  entrance:   { x: 3,  y: 5,  w: 24, h: 26, label: "입구" },
+  desk:       { x: 30, y: 5,  w: 40, h: 30, label: "책상" },
+  server:     { x: 73, y: 5,  w: 24, h: 26, label: "서버실" },
+  meeting:    { x: 3,  y: 37, w: 24, h: 26, label: "회의실" },
+  corridor:   { x: 29, y: 40, w: 42, h: 18, label: "복도" },
+  lab:        { x: 73, y: 37, w: 24, h: 26, label: "연구소" },
+  accounting: { x: 3,  y: 68, w: 24, h: 27, label: "회계실" },
+  lounge:     { x: 29, y: 62, w: 42, h: 33, label: "휴게" },
+  security:   { x: 73, y: 68, w: 24, h: 27, label: "보안실" },
+};
+const EMP_ZONE = { dev: "desk", marketer: "meeting", sales: "corridor", account: "accounting", risk: "security", researcher: "lab", ops: "corridor", brand: "meeting" };
+const FAC_ZONE = { office: "desk", server: "server", lab: "lab", marketing: "meeting", accounting: "accounting", security: "security" };
+function seedUnit(s) { let h = 2166136261 >>> 0; s = String(s); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= h << 13; h >>>= 0; h ^= h >> 17; h ^= h << 5; h >>>= 0; return (h % 1000) / 1000; }
+// 상황별 말풍선(2~3명만)
+function officeCtx(co, bank) {
+  const owed = bank.businessLoan ? int(bank.businessLoan.principal) + int(bank.businessLoan.interest) : 0;
+  if (busy) return "settle";
+  if (co.riskScore > 60) return "risk";
+  if (co.ipoReadiness >= 70 && co.stage !== "LISTED") return "ipo";
+  if (owed > 50000000) return "loan";
+  if (empCount(co) < 3) return "understaff";
+  if (facilityTotal(co) < 4) return "underfac";
+  return "normal";
+}
+const CTX_BUBBLE = {
+  settle: ["이번 실적 정리 중", "매출 데이터 확인 중"], risk: ["보안 점검이 필요합니다", "리스크 보고서 작성 중"],
+  ipo: ["상장 자료 검토 중", "IR 자료 준비 중"], loan: ["이자 부담을 확인 중", "상환 계획 검토 중"],
+  understaff: ["인력이 부족합니다", "채용이 필요합니다"], underfac: ["시설 업그레이드가 필요", "서버 공간이 부족합니다"], normal: null,
+};
+function bubbleText(emp, ctx) { const pool = CTX_BUBBLE[ctx]; if (pool) return pool[(emp._i || 0) % pool.length]; return (EMP_VIS[emp.type] || EMP_VIS.dev).bub; }
+
+function avatar(emp, opts) {
+  opts = opts || {};
   const v = EMP_VIS[emp.type] || EMP_VIS.dev;
-  return `<div class="av av-${v.cls} act-${v.act}" style="--d:${(i % 8) * 0.35}s">
+  const pos = opts.pos ? `left:${opts.pos.x}%;top:${opts.pos.y}%;` : "";
+  return `<div class="av av-${v.cls} act-${v.act}${opts.arrive ? " av-arrive" : ""}" style="${pos}--d:${(opts.i % 8) * 0.35}s" data-emp-detail="${emp.type}" role="button" tabindex="0" aria-label="${esc(v.cls)} 직원 상세">
     <div class="av-person"><span class="av-head"></span><span class="av-torso"></span></div>
     <span class="av-badge">${v.e}</span>${emp.level > 1 ? `<i class="av-lv">Lv${emp.level}</i>` : ""}
-    ${withBubble ? `<span class="av-bubble">${v.bub}</span>` : ""}
+    ${opts.bubble ? `<span class="av-bubble">${esc(opts.bubble)}</span>` : ""}
   </div>`;
 }
 function liveOffice(co, bank) {
   const black = (bank || {}).vipTier === "BLACK";
   const all = flattenEmployees(co), total = all.length;
-  const shown = all.slice(0, MAX_AVATARS), extra = total - shown.length;
-  const sitters = shown.filter((e) => (EMP_VIS[e.type] || {}).act !== "walking");
-  const walkers = shown.filter((e) => (EMP_VIS[e.type] || {}).act === "walking");
-  const officeLv = int(((co.facilities || {}).office || {}).level);
-  const deskCount = Math.max(sitters.length, officeLv * 2 + 3, 4);
-  // 책상(모니터 + 앉은 직원)
-  const desks = [];
-  for (let i = 0; i < Math.min(deskCount, 12); i++) {
-    const emp = sitters[i];
-    desks.push(`<div class="desk ${emp ? "occupied" : ""}"><span class="monitor ${emp && EMP_VIS[emp.type].act === "typing" ? "on" : ""}"></span>${emp ? avatar(emp, i, i < 3) : ""}</div>`);
-  }
-  // 시설 오브젝트(레벨>0 표시, 0이면 흐릿한 placeholder)
-  const facs = FACILITY_IDS.map((t) => {
-    const lv = int(((co.facilities || {})[t] || {}).level);
-    const hot = (t === "server" && ["fintech", "game", "security"].includes(co.sector)) || (t === "lab" && ["bio", "robot", "semicon"].includes(co.sector));
-    return `<div class="fac-obj ${lv > 0 ? "lv" + Math.min(4, lv) : "locked"} ${hot ? "hot" : ""}" title="${esc(FACILITIES[t].label)} Lv.${lv}"><span class="fo-ico">${FAC_OBJ[t]}</span><i>${FACILITIES[t].label}</i>${lv > 0 ? `<b>Lv.${lv}</b>` : `<b class="muted">잠김</b>`}</div>`;
+  const cap = (typeof window !== "undefined" && window.innerWidth <= 760) ? 10 : MAX_AVATARS;
+  const shown = all.slice(0, cap), extra = total - shown.length;
+  shown.forEach((e, i) => { e._i = i; });
+  const ctx = officeCtx(co, bank);
+  const collab = ctx === "settle" || (co.ipoReadiness >= 70 && co.stage !== "LISTED");
+  // 직원 배치(구역 + seed jitter) — 같은 회사 데이터면 비슷하게 재현
+  let arrivedFor = null;
+  const avatars = shown.map((emp, i) => {
+    const z = ZONES[EMP_ZONE[emp.type] || "desk"];
+    const x = z.x + 3 + seedUnit(co.companyId + ":" + emp.type + ":x:" + i) * Math.max(2, z.w - 12);
+    const y = z.y + 4 + seedUnit(co.companyId + ":" + emp.type + ":y:" + i) * Math.max(2, z.h - 16);
+    let arrive = false;
+    if (hireAnim && hireAnim.type === emp.type && arrivedFor !== emp.type) { arrive = true; arrivedFor = emp.type; }
+    return avatar(emp, { pos: { x: Math.round(x), y: Math.round(y) }, i, bubble: i < 3 ? bubbleText(emp, ctx) : null, arrive });
   }).join("");
-  return `<div class="office stage-${co.stage} sector-${co.sector} ${black ? "black" : ""}" aria-label="라이브 오피스">
-    <div class="office-deco"></div>
-    <div class="office-floor">
-      <div class="desk-grid">${desks.join("")}</div>
-      ${walkers.length ? `<div class="walk-lane">${walkers.map((e, i) => avatar(e, i, i === 0)).join("")}</div>` : ""}
-      <div class="meeting-zone"><span class="board"></span>${shown.find((e) => e.type === "marketer" || e.type === "brand") ? `<span class="board-dot"></span>` : ""}</div>
+  // 구역 배경
+  const zoneBg = Object.entries(ZONES).map(([k, z]) => `<div class="zone zone-${k}" data-zone="${k}" style="left:${z.x}%;top:${z.y}%;width:${z.w}%;height:${z.h}%"><i>${z.label}</i></div>`).join("");
+  // 시설 오브젝트(구역 내부, 클릭 가능)
+  const facObjs = FACILITY_IDS.map((t) => {
+    const lv = int(((co.facilities || {})[t] || {}).level);
+    const z = ZONES[FAC_ZONE[t]] || ZONES.desk;
+    const hot = (t === "server" && ["fintech", "game", "security"].includes(co.sector)) || (t === "lab" && ["bio", "robot", "semicon"].includes(co.sector));
+    const building = facAnim && facAnim.type === t;
+    return `<div class="fac-o fac-${t} ${lv > 0 ? "lv" + Math.min(4, lv) : "locked"} ${hot ? "hot" : ""} ${building ? "building" : ""}" style="left:${z.x + z.w - 17}%;top:${z.y + 2}%" data-fac-detail="${t}" role="button" tabindex="0" aria-label="${esc(FACILITIES[t].label)} 상세">
+      <span class="fo-ico">${FAC_OBJ[t]}</span>${lv > 0 ? `<b>${lv}</b>` : ""}${building ? `<span class="fo-build">공사중</span>` : ""}</div>`;
+  }).join("");
+  return `<div class="office stage-${co.stage} sector-${co.sector} ${black ? "black" : ""} ${collab ? "collab" : ""} ${busy ? "settling" : ""}" aria-label="라이브 오피스">
+    <div class="office-stage">
+      ${zoneBg}
+      ${facObjs}
+      ${avatars}
+      ${collab ? `<div class="collab-ring" style="left:${ZONES.meeting.x + 6}%;top:${ZONES.meeting.y + 6}%"></div>` : ""}
+      ${total === 0 ? `<div class="office-empty">🪑 텅 빈 사무실 — <b>직원을 고용해 회사를 움직여 보세요</b></div>` : ""}
     </div>
-    <div class="fac-shelf">${facs}</div>
-    ${total === 0 ? `<div class="office-empty">🪑 텅 빈 사무실 — <b>직원을 고용해 회사를 움직여 보세요</b></div>` : extra > 0 ? `<div class="office-more">+${extra}명 근무 중</div>` : ""}
-    <div class="office-tag">게임머니 기반 타이쿤 오피스</div>
+    ${extra > 0 ? `<div class="office-more">+${extra}명 근무 중</div>` : ""}
+    <div class="office-tag">게임머니 기반 타이쿤 오피스 · 클릭해서 직원/시설 상세 보기</div>
   </div>`;
+}
+
+// ── v3.2: 직원/시설 상세 패널(추가 조회 없이 기존 데이터 사용) ──
+function closeOfficePanel() { document.getElementById("officeDetail")?.remove(); }
+function openPanel(html, title) {
+  closeOfficePanel();
+  const el = document.createElement("div");
+  el.id = "officeDetail"; el.className = "office-detail-dim";
+  el.innerHTML = `<div class="office-detail"><div class="od-top"><b>${esc(title)}</b><button class="co-btn ghost small" data-od-x>닫기</button></div>${html}</div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", (e) => { if (e.target === el) closeOfficePanel(); });
+  el.querySelector("[data-od-x]").onclick = closeOfficePanel;
+  el.querySelectorAll("[data-od-hire]").forEach((b) => b.addEventListener("click", () => { closeOfficePanel(); hireWithAnim(b.dataset.odHire); }));
+  el.querySelectorAll("[data-od-level]").forEach((b) => b.addEventListener("click", () => { closeOfficePanel(); act(() => Co.levelUpEmployee(state.uid, b.dataset.odLevel, state, payMethod === "card" ? "card" : "company")); }));
+  el.querySelectorAll("[data-od-fac]").forEach((b) => b.addEventListener("click", () => { closeOfficePanel(); upgradeWithAnim(b.dataset.odFac); }));
+  el.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { closeOfficePanel(); tab = b.dataset.tab; render(); }));
+}
+const EMP_REC = { dev: "서버실을 업그레이드하면 개발 효율이 더 좋아집니다.", marketer: "마케팅룸을 함께 강화하면 브랜드가 빠르게 오릅니다.", sales: "영업 인원이 많을수록 매출이 늘어납니다.", account: "회계실과 함께 강화하면 비용이 더 절감됩니다.", risk: "보안실을 함께 강화하면 리스크가 더 낮아집니다.", researcher: "연구소 레벨이 높으면 IPO 준비도가 더 빨리 오릅니다.", ops: "운영 매니저는 시설 효율을 높여 줍니다.", brand: "엔터테인먼트 업종에서 특히 효과가 큽니다." };
+function showEmpDetail(type) {
+  const co = state.company; if (!co) return;
+  const e = (co.employees || {})[type] || { count: 0, level: 1 }, p = EMPLOYEES[type], v = EMP_VIS[type];
+  const total = int(e.count), lv = Math.max(1, int(e.level));
+  openPanel(`<div class="od-head"><span class="od-ico">${v.e}</span><div><b>${p.label} Lv.${lv}</b><small>현재 업무: ${v.bub}</small></div></div>
+    ${row("효과", p.effect)}
+    ${row("회사 내 인원 / 평균 레벨", total + "명 · Lv." + lv)}
+    ${row("고용비 / 레벨업비", won(employeeCost(co, type)) + " / " + won(employeeLevelCost(co, type)))}
+    <p class="co-note">추천: ${esc(EMP_REC[type] || "레벨업하면 효과가 커집니다.")}</p>
+    <div class="co-btnrow"><button class="co-btn primary small" data-od-hire="${type}">고용</button><button class="co-btn small" data-od-level="${type}" ${total > 0 ? "" : "disabled"}>레벨업</button><button class="co-btn ghost small" data-tab="employees">직원 탭</button></div>`, "직원 상세");
+}
+const FAC_NEXT = { office: "직원 수용량과 책상이 늘어납니다.", server: "서버 랙이 추가되고 매출 보정이 커집니다.", lab: "연구 장비가 추가되고 성장/IPO 보너스가 커집니다.", marketing: "광고판이 추가되고 브랜드 상승이 커집니다.", accounting: "비용 절감 효과가 커집니다.", security: "리스크 감소 효과가 커집니다." };
+function showFacDetail(type) {
+  const co = state.company; if (!co) return;
+  const p = FACILITIES[type], lv = int(((co.facilities || {})[type] || {}).level);
+  openPanel(`<div class="od-head"><span class="od-ico">${FAC_OBJ[type]}</span><div><b>${p.label} Lv.${lv}</b><small>${p.effect}</small></div></div>
+    ${lv === 0 ? `<p class="co-note">아직 미설치(잠김) 시설입니다. 업그레이드로 설치하세요.</p>` : row("가동률", Math.min(100, 40 + lv * 15) + "%")}
+    ${row("다음 레벨 / 비용", "Lv." + (lv + 1) + " · " + won(facilityCost(co, type)))}
+    <p class="co-note">다음 레벨: ${esc(FAC_NEXT[type] || "효과가 커집니다.")}</p>
+    <div class="co-btnrow"><button class="co-btn primary small" data-od-fac="${type}">업그레이드</button><button class="co-btn ghost small" data-tab="facilities">시설 탭</button></div>`, "시설 상세");
+}
+// 고용/시설 연출(로컬 transient flag, Firebase 저장 없음)
+function hireWithAnim(type) {
+  hireAnim = { type };
+  act(() => Co.hireEmployee(state.uid, type, state, payMethod === "card" ? "card" : "company")).finally(() => { setTimeout(() => { hireAnim = null; }, 1300); });
+}
+function upgradeWithAnim(type) {
+  facAnim = { type };
+  act(() => Co.upgradeFacility(state.uid, type, state, payMethod === "card" ? "card" : "company")).finally(() => { setTimeout(() => { facAnim = null; }, 1100); });
 }
 // 라이브 오피스 상태/추천 패널
 function officeStatusPanel(co, bank) {
@@ -243,14 +336,17 @@ function officeStatusPanel(co, bank) {
   const facRate = Math.min(100, Math.round((fac / (FACILITY_IDS.length * 3)) * 100));
   const owed = bank.businessLoan ? int(bank.businessLoan.principal) + int(bank.businessLoan.interest) : 0;
   const recs = [];
-  if (emp === 0) recs.push("직원을 고용해 회사를 가동하세요.");
-  if (co.companyCash <= 0) recs.push("회사 자금이 부족합니다. 출자/사업대출을 검토하세요.");
-  if (co.riskScore > 60) recs.push("리스크가 높습니다. 보안실 또는 리스크 매니저를 강화하세요.");
-  if (fac < 4) recs.push("시설 업그레이드 여지가 있습니다.");
-  if (co.ipoReadiness >= 70 && co.stage !== "LISTED") recs.push("IPO 준비도 70%↑ — 상장 심사 준비를 시작하세요.");
-  if (ev.type === "lowrate") recs.push("저금리 이벤트 중 — 사업대출 조건이 유리합니다.");
-  if (ev.type === "highrate" || ev.type === "caution") recs.push("금융 경계 분위기 — 고액 대출/카드 사용에 주의하세요.");
-  if (!recs.length) recs.push("직원들이 안정적으로 업무 중입니다.");
+  if (emp === 0) recs.push({ t: "직원을 고용해 회사를 가동하세요.", tab: "employees" });
+  else if (emp < 3) recs.push({ t: "직원을 1명 더 고용하면 정산 효율이 좋아집니다.", tab: "employees" });
+  if (co.companyCash <= 0) recs.push({ t: "회사 자금이 부족합니다. 출자/사업대출을 검토하세요.", tab: "funds" });
+  if (co.riskScore > 60) recs.push({ t: "리스크가 높습니다. 보안실 또는 리스크 매니저를 강화하세요.", tab: "facilities" });
+  if (co.brandScore < 30) recs.push({ t: "브랜드가 낮습니다. 마케팅룸/브랜드 매니저를 강화하세요.", tab: "facilities" });
+  if (fac < 4) recs.push({ t: "사무실을 업그레이드하면 더 많은 직원을 수용할 수 있습니다.", tab: "facilities" });
+  if (co.ipoReadiness >= 70 && co.stage !== "LISTED") recs.push({ t: "IPO 준비도 70%↑ — 상장 심사 준비를 시작하세요.", tab: "ipo" });
+  if (owed > 0) recs.push({ t: "사업대출 상환 계획을 확인하세요.", tab: "funds" });
+  if (ev.type === "lowrate") recs.push({ t: "저금리 이벤트 중 — 사업대출 조건이 유리합니다.", tab: "funds" });
+  if (ev.type === "highrate" || ev.type === "caution") recs.push({ t: "금융 경계 분위기 — 고액 대출/카드 사용에 주의하세요.", tab: "funds" });
+  if (!recs.length) recs.push({ t: "직원들이 안정적으로 업무 중입니다.", tab: "" });
   const moods = { 활발: "활기찬 사무실 🌟", 유지: "차분한 사무실 🙂", 정지: "조용한 사무실 😴" };
   return `<h3>오늘의 사무실</h3>
     <div class="co-row"><span>분위기</span><b>${moods[activity]}</b></div>
@@ -259,7 +355,7 @@ function officeStatusPanel(co, bank) {
     <div class="co-row"><span>리스크 경보</span><b class="${co.riskScore > 60 ? "warn" : "ok"}">${co.riskScore > 60 ? "주의" : "안정"}</b></div>
     <div class="co-row"><span>Bank 이벤트</span><b>${esc(ev.title || "—")}</b></div>
     <div class="co-row"><span>사업대출 부담</span><b class="${owed > 0 ? "warn" : ""}">${owed > 0 ? won(owed) : "없음"}</b></div>
-    <div class="office-recs"><b>다음 추천 행동</b><ul>${recs.slice(0, 3).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>`;
+    <div class="office-recs"><b>다음 추천 행동</b><ul>${recs.slice(0, 3).map((r) => `<li ${r.tab ? `data-tab="${r.tab}" role="button" tabindex="0"` : ""}>${esc(r.t)}${r.tab ? ` <i class="rec-go">→</i>` : ""}</li>`).join("")}</ul></div>`;
 }
 // 포토(스냅샷) 모드 — 패널 숨기고 오피스만 깔끔히
 function photoView(co, bank) {
@@ -449,10 +545,14 @@ function bind() {
   app.querySelectorAll("[data-found-sector]").forEach((b) => b.addEventListener("click", () => { foundForm.sector = b.dataset.foundSector; syncFoundInputs(); render(); }));
   app.querySelectorAll("[data-found-strategy]").forEach((b) => b.addEventListener("click", () => { foundForm.strategy = b.dataset.foundStrategy; syncFoundInputs(); render(); }));
   app.querySelectorAll("[data-pm]").forEach((b) => b.addEventListener("click", () => { payMethod = b.dataset.pm; render(); }));
-  app.querySelectorAll("[data-emp-hire]").forEach((b) => b.addEventListener("click", () => act(() => Co.hireEmployee(state.uid, b.dataset.empHire, state, payMethod === "card" ? "card" : "company"))));
+  app.querySelectorAll("[data-emp-hire]").forEach((b) => b.addEventListener("click", () => hireWithAnim(b.dataset.empHire)));
   app.querySelectorAll("[data-emp-fire]").forEach((b) => b.addEventListener("click", () => act(() => Co.fireEmployee(state.uid, b.dataset.empFire, state))));
   app.querySelectorAll("[data-emp-level]").forEach((b) => b.addEventListener("click", () => act(() => Co.levelUpEmployee(state.uid, b.dataset.empLevel, state, payMethod === "card" ? "card" : "company"))));
-  app.querySelectorAll("[data-fac-up]").forEach((b) => b.addEventListener("click", () => act(() => Co.upgradeFacility(state.uid, b.dataset.facUp, state, payMethod === "card" ? "card" : "company"))));
+  app.querySelectorAll("[data-fac-up]").forEach((b) => b.addEventListener("click", () => upgradeWithAnim(b.dataset.facUp)));
+  // v3.2: 라이브 오피스 직원/시설 클릭 상세 + 구역 포커스
+  app.querySelectorAll("[data-emp-detail]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); showEmpDetail(b.dataset.empDetail); }));
+  app.querySelectorAll("[data-fac-detail]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); showFacDetail(b.dataset.facDetail); }));
+  app.querySelectorAll("[data-zone]").forEach((z) => z.addEventListener("click", () => { const on = z.classList.contains("focus"); app.querySelectorAll(".zone.focus").forEach((q) => q.classList.remove("focus")); if (!on) z.classList.add("focus"); }));
   app.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => onAct(b.dataset.act)));
 }
 function syncFoundInputs() { const n = document.getElementById("foName"), s = document.getElementById("foSlogan"); if (n) foundForm.name = n.value; if (s) foundForm.slogan = s.value; }
