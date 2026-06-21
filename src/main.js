@@ -230,60 +230,103 @@ const CTX_BUBBLE = {
 };
 function bubbleText(emp, ctx) { const pool = CTX_BUBBLE[ctx]; if (pool) return pool[(emp._i || 0) % pool.length]; return (EMP_VIS[emp.type] || EMP_VIS.dev).bub; }
 
+// v3.2.1: 미니 타이쿤 캐릭터(머리/몸통/팔 + 직무 배지)
 function avatar(emp, opts) {
   opts = opts || {};
   const v = EMP_VIS[emp.type] || EMP_VIS.dev;
   const pos = opts.pos ? `left:${opts.pos.x}%;top:${opts.pos.y}%;` : "";
-  return `<div class="av av-${v.cls} act-${v.act}${opts.arrive ? " av-arrive" : ""}" style="${pos}--d:${(opts.i % 8) * 0.35}s" data-emp-detail="${emp.type}" role="button" tabindex="0" aria-label="${esc(v.cls)} 직원 상세">
-    <div class="av-person"><span class="av-head"></span><span class="av-torso"></span></div>
-    <span class="av-badge">${v.e}</span>${emp.level > 1 ? `<i class="av-lv">Lv${emp.level}</i>` : ""}
-    ${opts.bubble ? `<span class="av-bubble">${esc(opts.bubble)}</span>` : ""}
+  return `<div class="emp emp-${v.cls} act-${v.act}${opts.arrive ? " emp-arrive" : ""}${opts.sit ? " sitting" : ""}" style="${pos}--d:${(opts.i % 8) * 0.4}s" data-emp-detail="${emp.type}" role="button" tabindex="0" aria-label="${esc(v.cls)} 직원 상세">
+    <span class="emp-arm la"></span><span class="emp-arm ra"></span>
+    <span class="emp-head"></span><span class="emp-body"></span>
+    <span class="emp-tag">${v.e}</span>${emp.level > 1 ? `<i class="emp-lv">${emp.level}</i>` : ""}
+    ${opts.bubble ? `<span class="emp-bubble">${esc(opts.bubble)}</span>` : ""}
   </div>`;
+}
+// 위치 지정 시설 가구(클릭 가능, 레벨/공사중 반영)
+function fgroup(x, y, facType, lv, inner, label) {
+  const building = facAnim && facAnim.type === facType;
+  return `<div class="fgroup ${lv > 0 ? "lv" + Math.min(4, int(lv)) : "locked"} ${building ? "building" : ""}" style="left:${x}%;top:${y}%" data-fac-detail="${facType}" role="button" tabindex="0" aria-label="${esc(label)} 상세">
+    ${inner}<span class="fg-lv">${lv > 0 ? "Lv." + lv : "🔒"}</span>${building ? `<span class="fg-build">공사중</span>` : ""}</div>`;
 }
 function liveOffice(co, bank) {
   const black = (bank || {}).vipTier === "BLACK";
   const all = flattenEmployees(co), total = all.length;
-  const cap = (typeof window !== "undefined" && window.innerWidth <= 760) ? 10 : MAX_AVATARS;
+  const mobile = (typeof window !== "undefined" && window.innerWidth <= 760);
+  const cap = mobile ? 10 : MAX_AVATARS;
   const shown = all.slice(0, cap), extra = total - shown.length;
   shown.forEach((e, i) => { e._i = i; });
   const ctx = officeCtx(co, bank);
   const collab = ctx === "settle" || (co.ipoReadiness >= 70 && co.stage !== "LISTED");
-  // 직원 배치(구역 + seed jitter) — 같은 회사 데이터면 비슷하게 재현
-  let arrivedFor = null;
-  const avatars = shown.map((emp, i) => {
-    const z = ZONES[EMP_ZONE[emp.type] || "desk"];
-    const x = z.x + 3 + seedUnit(co.companyId + ":" + emp.type + ":x:" + i) * Math.max(2, z.w - 12);
-    const y = z.y + 4 + seedUnit(co.companyId + ":" + emp.type + ":y:" + i) * Math.max(2, z.h - 16);
+  const lvl = (t) => int(((co.facilities || {})[t] || {}).level);
+  let arrivedFor = null, bubbleBudget = mobile ? 0 : 3;
+  const place = (emp, x, y, sit) => {
     let arrive = false;
     if (hireAnim && hireAnim.type === emp.type && arrivedFor !== emp.type) { arrive = true; arrivedFor = emp.type; }
-    return avatar(emp, { pos: { x: Math.round(x), y: Math.round(y) }, i, bubble: i < 3 ? bubbleText(emp, ctx) : null, arrive });
-  }).join("");
-  // 구역 배경
-  const zoneBg = Object.entries(ZONES).map(([k, z]) => `<div class="zone zone-${k}" data-zone="${k}" style="left:${z.x}%;top:${z.y}%;width:${z.w}%;height:${z.h}%"><i>${z.label}</i></div>`).join("");
-  // 시설 오브젝트(구역 내부, 클릭 가능)
-  const facObjs = FACILITY_IDS.map((t) => {
-    const lv = int(((co.facilities || {})[t] || {}).level);
-    const z = ZONES[FAC_ZONE[t]] || ZONES.desk;
-    const hot = (t === "server" && ["fintech", "game", "security"].includes(co.sector)) || (t === "lab" && ["bio", "robot", "semicon"].includes(co.sector));
-    const building = facAnim && facAnim.type === t;
-    return `<div class="fac-o fac-${t} ${lv > 0 ? "lv" + Math.min(4, lv) : "locked"} ${hot ? "hot" : ""} ${building ? "building" : ""}" style="left:${z.x + z.w - 17}%;top:${z.y + 2}%" data-fac-detail="${t}" role="button" tabindex="0" aria-label="${esc(FACILITIES[t].label)} 상세">
-      <span class="fo-ico">${FAC_OBJ[t]}</span>${lv > 0 ? `<b>${lv}</b>` : ""}${building ? `<span class="fo-build">공사중</span>` : ""}</div>`;
-  }).join("");
+    const bub = (bubbleBudget > 0 && emp._i < 4) ? (bubbleBudget--, bubbleText(emp, ctx)) : null;
+    return avatar(emp, { pos: { x, y }, i: emp._i, bubble: bub, arrive, sit });
+  };
+  // 직원 그룹 분배(가구 근처에 자연 배치)
+  const sitters = shown.filter((e) => e.type === "dev" || e.type === "account");
+  const walkers = shown.filter((e) => e.type === "sales" || e.type === "ops");
+  const meet = shown.filter((e) => e.type === "marketer" || e.type === "brand");
+  const labp = shown.filter((e) => e.type === "researcher");
+  const secp = shown.filter((e) => e.type === "risk");
+  // 책상 섬(개발/회계가 앉아서 업무)
+  const officeLv = lvl("office");
+  const deskCount = Math.max(sitters.length, officeLv * 2 + 2, 3);
+  const cols = mobile ? 2 : 3, maxDesks = mobile ? 4 : 6;
+  let desks = "", deskAvs = "";
+  for (let i = 0; i < Math.min(deskCount, maxDesks); i++) {
+    const col = i % cols, r = Math.floor(i / cols);
+    const dx = 30 + col * 13, dy = 8 + r * 13, emp = sitters[i];
+    desks += `<div class="furn desk ${emp ? "busy" : ""}" style="left:${dx}%;top:${dy}%" data-fac-detail="office" role="button" tabindex="0" aria-label="사무실(책상) 상세"><span class="dk-mon ${emp ? "on" : ""}"></span><span class="dk-top"></span><span class="dk-chair"></span></div>`;
+    if (emp) deskAvs += place(emp, dx + 2, dy + 7, true);
+  }
+  // 서버실(랙 + 점멸등)
+  const serverLv = lvl("server"), rackN = serverLv > 0 ? Math.min(3, serverLv) : 1;
+  let racks = ""; for (let i = 0; i < rackN; i++) racks += `<span class="rack ${serverLv > 0 ? "" : "off"}"><i></i><i></i><i></i></span>`;
+  const serverHot = ["fintech", "game", "security"].includes(co.sector);
+  const serverGroup = fgroup(75, 7, "server", serverLv, `<div class="racks ${serverHot ? "hot" : ""}">${racks}</div>`, "서버실");
+  // 회의실(테이블 + 화이트보드, IPO 높으면 그래프)
+  const ipoHi = co.ipoReadiness >= 60;
+  const boardGroup = fgroup(4, 39, "marketing", lvl("marketing"), `<div class="whiteboard ${ipoHi ? "ipo" : ""}"><span class="wb-line"></span><span class="wb-line s"></span>${ipoHi ? `<span class="wb-graph"></span>` : ""}</div><div class="mtable"></div>`, "회의실/마케팅");
+  const meetAvs = meet.map((e, i) => place(e, 6 + (i % 3) * 6, 51 + Math.floor(i / 3) * 6, false)).join("");
+  // 연구소(실험대 + 플라스크/전구)
+  const labHot = ["bio", "robot", "semicon"].includes(co.sector);
+  const labGroup = fgroup(74, 39, "lab", lvl("lab"), `<div class="labtable ${labHot ? "hot" : ""}"><span class="flask"></span><span class="bulb ${lvl("lab") > 1 ? "on" : ""}"></span></div>`, "연구소");
+  const labAvs = labp.map((e, i) => place(e, 75 + (i % 2) * 7, 51 + Math.floor(i / 2) * 6, false)).join("");
+  // 회계실(문서함 + 금고)
+  const acctGroup = fgroup(4, 70, "accounting", lvl("accounting"), `<div class="cabinet"><i></i><i></i><i></i></div><div class="safe"><span></span></div>`, "회계실");
+  // 보안실(보안패널 + 경고등, 리스크 높으면 경고색)
+  const riskHi = co.riskScore > 60;
+  const secGroup = fgroup(75, 70, "security", lvl("security"), `<div class="secpanel ${riskHi ? "alert" : ""}"><span class="sp-shield"></span><span class="sp-led"></span></div>`, "보안실");
+  const secAvs = secp.map((e, i) => place(e, 75 + (i % 2) * 7, 82 + Math.floor(i / 2) * 5, false)).join("");
+  // 복도 보행자
+  const corrAvs = walkers.map((e, i) => place(e, 31 + (i % 4) * 9 + Math.round(seedUnit(co.companyId + "w" + i) * 4), 44 + (i % 2) * 7, false)).join("");
+  // 입구 + 휴게 데코(소품)
+  const decor = `<div class="furn door" style="left:3%;top:9%"></div>
+    <span class="prop" style="left:5%;top:30%">🪴</span><span class="prop" style="left:67%;top:34%">🪴</span>
+    <span class="prop" style="left:34%;top:65%">☕</span><div class="furn sofa" style="left:41%;top:67%"></div><span class="prop" style="left:58%;top:65%">📦</span>`;
+  // 보이지 않는 구역 클릭 핫스팟(포커스용, 박스/라벨 없음)
+  const zoneHot = Object.entries(ZONES).map(([k, z]) => `<div class="zone zone-${k}" data-zone="${k}" style="left:${z.x}%;top:${z.y}%;width:${z.w}%;height:${z.h}%"></div>`).join("");
   return `<div class="office stage-${co.stage} sector-${co.sector} ${black ? "black" : ""} ${collab ? "collab" : ""} ${busy ? "settling" : ""}" aria-label="라이브 오피스">
     <div class="office-stage">
-      ${zoneBg}
-      ${facObjs}
-      ${avatars}
-      ${collab ? `<div class="collab-ring" style="left:${ZONES.meeting.x + 6}%;top:${ZONES.meeting.y + 6}%"></div>` : ""}
+      <div class="wall"></div><div class="floor"></div>
+      ${zoneHot}
+      ${decor}
+      ${desks}${serverGroup}${boardGroup}${labGroup}${acctGroup}${secGroup}
+      ${deskAvs}${meetAvs}${labAvs}${secAvs}${corrAvs}
+      ${collab ? `<div class="collab-ring" style="left:11%;top:46%"></div>` : ""}
       ${total === 0 ? `<div class="office-empty">🪑 텅 빈 사무실 — <b>직원을 고용해 회사를 움직여 보세요</b></div>` : ""}
     </div>
     ${extra > 0 ? `<div class="office-more">+${extra}명 근무 중</div>` : ""}
-    <div class="office-tag">게임머니 기반 타이쿤 오피스 · 클릭해서 직원/시설 상세 보기</div>
+    <div class="office-tag">클릭해서 직원/시설 상세 보기 · 게임머니 타이쿤</div>
   </div>`;
 }
 
 // ── v3.2: 직원/시설 상세 패널(추가 조회 없이 기존 데이터 사용) ──
-function closeOfficePanel() { document.getElementById("officeDetail")?.remove(); }
+function closeOfficePanel() { document.getElementById("officeDetail")?.remove(); document.querySelectorAll(".hl").forEach((e) => e.classList.remove("hl")); }
+function highlightOffice(sel) { document.querySelectorAll(".hl").forEach((e) => e.classList.remove("hl")); document.querySelectorAll(sel).forEach((e) => e.classList.add("hl")); }
 function openPanel(html, title) {
   closeOfficePanel();
   const el = document.createElement("div");
@@ -302,7 +345,8 @@ function showEmpDetail(type) {
   const co = state.company; if (!co) return;
   const e = (co.employees || {})[type] || { count: 0, level: 1 }, p = EMPLOYEES[type], v = EMP_VIS[type];
   const total = int(e.count), lv = Math.max(1, int(e.level));
-  openPanel(`<div class="od-head"><span class="od-ico">${v.e}</span><div><b>${p.label} Lv.${lv}</b><small>현재 업무: ${v.bub}</small></div></div>
+  highlightOffice(`[data-emp-detail="${type}"]`);
+  openPanel(`<div class="od-head"><span class="od-prev emp-${v.cls}">${avatar({ type, level: lv }, { i: 0 })}</span><div><b>${p.label} Lv.${lv}</b><small>현재 업무: ${v.bub}</small></div></div>
     ${row("효과", p.effect)}
     ${row("회사 내 인원 / 평균 레벨", total + "명 · Lv." + lv)}
     ${row("고용비 / 레벨업비", won(employeeCost(co, type)) + " / " + won(employeeLevelCost(co, type)))}
@@ -313,7 +357,9 @@ const FAC_NEXT = { office: "직원 수용량과 책상이 늘어납니다.", ser
 function showFacDetail(type) {
   const co = state.company; if (!co) return;
   const p = FACILITIES[type], lv = int(((co.facilities || {})[type] || {}).level);
+  highlightOffice(`[data-fac-detail="${type}"]`);
   openPanel(`<div class="od-head"><span class="od-ico">${FAC_OBJ[type]}</span><div><b>${p.label} Lv.${lv}</b><small>${p.effect}</small></div></div>
+    <div class="od-gauge"><span style="width:${Math.min(100, lv * 20)}%"></span></div>
     ${lv === 0 ? `<p class="co-note">아직 미설치(잠김) 시설입니다. 업그레이드로 설치하세요.</p>` : row("가동률", Math.min(100, 40 + lv * 15) + "%")}
     ${row("다음 레벨 / 비용", "Lv." + (lv + 1) + " · " + won(facilityCost(co, type)))}
     <p class="co-note">다음 레벨: ${esc(FAC_NEXT[type] || "효과가 커집니다.")}</p>
@@ -566,9 +612,24 @@ async function doSettle() {
   try {
     await Co.settleNow(state.uid, state);
     await reload();
-    if (preview && preview.applied) showSettleResult(preview); else toast("정산 완료", "ok");
+    if (preview && preview.applied) { showSettleResult(preview); officeFloat((preview.profit >= 0 ? "+" : "−") + won(Math.abs(preview.profit)), preview.profit >= 0); }
+    else toast("정산 완료", "ok");
   } catch (e) { toast((e && e.message) || "정산할 내용이 없습니다.", "err"); }
   finally { busy = false; }
+}
+// 오피스 내부에서 +수익 숫자가 떠오르는 연출(reduced-motion이면 생략)
+function officeFloat(text, good) {
+  try {
+    const stage = document.querySelector(".office-stage"); if (!stage || prefersReduced()) return;
+    [{ l: 42, t: 28 }, { l: 60, t: 18 }].forEach((p, i) => {
+      const el = document.createElement("div");
+      el.className = "office-float " + (good ? "up" : "down");
+      el.textContent = i === 0 ? text : (good ? "📈" : "📉");
+      el.style.left = p.l + "%"; el.style.top = p.t + "%"; el.style.animationDelay = (i * 0.12) + "s";
+      stage.appendChild(el);
+      setTimeout(() => el.remove(), 1500);
+    });
+  } catch (_) {}
 }
 
 function onAct(a) {
