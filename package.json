@@ -1,0 +1,21 @@
+{
+  "name": "stonk-company",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "내 회사를 세우고, 키우고, 상장시키는 STONK 타이쿤 경영 사이트 (게임머니)",
+  "repository": "https://github.com/tom981105-web/STONK-Company",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build --base=./",
+    "preview": "vite preview --host 0.0.0.0",
+    "deploy": "npm run build && gh-pages -d dist --repo https://github.com/tom981105-web/STONK-Company.git"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "gh-pages": "^6.1.1"
+  },
+  "dependencies": {
+    "firebase": "^10.12.2"
+  }
+}
