@@ -84,7 +84,31 @@ s { opacity: .6; }
 .cg-bar.ok span { background: linear-gradient(90deg,#36d399,#e8c87a); } .cg-bar.blue span { background: #5b8cff; } .cg-bar.warn span { background: #f5b14a; } .cg-bar.danger span { background: var(--red); }
 
 .sector-mini { text-align: center; } .sm-ico { font-size: 30px; } .sector-mini b { display: block; margin: 4px 0; } .sector-mini small { color: var(--muted); font-size: 11px; }
-.emp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; } .emp-ico { font-size: 24px; } .emp-head b { font-size: 14px; } .emp-head small { color: var(--muted); font-size: 11px; }
+
+/* ── 채용/시설 상점 카드(타이쿤 스타일) ── */
+.pay-bar { background: linear-gradient(135deg, rgba(54,211,153,.06), rgba(91,140,255,.04)); }
+.shop-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.co-card.staff, .co-card.fac { display: flex; flex-direction: column; gap: 9px; transition: transform .15s, border-color .15s, box-shadow .15s; }
+.co-card.staff:hover, .co-card.fac:hover { transform: translateY(-3px); border-color: var(--green); box-shadow: 0 10px 26px rgba(0,0,0,.4); }
+.co-card.staff.owned { border-color: #2f6b52; box-shadow: inset 0 0 0 1px rgba(54,211,153,.12); }
+.co-card.fac.locked { opacity: .82; }
+.co-card.fac.owned { border-color: #2f6b52; }
+.staff-top { display: flex; align-items: flex-start; gap: 12px; }
+.staff-fig { position: relative; width: 38px; height: 50px; flex: none; display: grid; place-items: center;
+  border-radius: 12px; background: radial-gradient(120% 100% at 50% 0%, rgba(91,140,255,.14), rgba(255,255,255,.02)); border: 1px solid var(--border); }
+.staff-fig .emp { transform: scale(1.05); }
+.fac-ico { width: 44px; height: 44px; flex: none; display: grid; place-items: center; font-size: 26px; border-radius: 12px;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(232,200,122,.16), rgba(255,255,255,.02)); border: 1px solid var(--border); }
+.co-card.fac.locked .fac-ico { filter: grayscale(.7); opacity: .65; }
+.staff-id { flex: 1; min-width: 0; } .staff-id b { font-size: 14px; display: block; } .staff-id small { color: var(--text2); font-size: 11px; line-height: 1.45; display: block; margin-top: 2px; }
+.staff-count { font-size: 11px; color: var(--muted); white-space: nowrap; } .staff-count b { color: var(--text); font-size: 14px; }
+.staff-meta { display: flex; align-items: center; gap: 8px; }
+.lv-pips { display: inline-flex; gap: 3px; } .lv-pips i { width: 14px; height: 6px; border-radius: 3px; background: var(--bg2); border: 1px solid var(--border); }
+.lv-pips i.on { background: linear-gradient(90deg,#5b8cff,#36d399); border-color: transparent; }
+.staff-lvtxt { font-size: 11px; font-weight: 800; color: var(--text2); }
+.staff-price { display: flex; justify-content: space-between; align-items: center; padding: 8px 11px; border-radius: var(--radius-sm); background: var(--bg2); border: 1px solid var(--border); }
+.staff-price span { font-size: 12px; color: var(--text2); } .staff-price b { font-size: 14px; }
+.co-card.staff .co-btnrow, .co-card.fac .co-btnrow { margin-top: 2px; } .co-btn.full { width: 100%; }
 
 .co-event { display: flex; align-items: center; gap: 12px; padding: 11px 14px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid rgba(91,140,255,.3); background: linear-gradient(135deg, rgba(91,140,255,.10), rgba(54,211,153,.05)); }
 .co-event span { font-size: 20px; } .co-event b { font-size: 14px; display: block; } .co-event small { color: var(--text2); font-size: 12px; }

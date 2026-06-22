@@ -494,21 +494,29 @@ function companyTab() {
 }
 
 // ── 직원 ──
+function levelPips(lv, max) { max = max || 5; lv = Math.max(0, int(lv)); let s = ""; for (let i = 0; i < max; i++) s += `<i class="${i < lv ? "on" : ""}"></i>`; return `<span class="lv-pips">${s}</span>`; }
 function employeesTab() {
   const co = state.company; if (!co) return needCompany();
-  return `<div class="co-card"><h3>직원 결제수단 <span class="co-tag">${empCount(co)}명</span></h3>
-    <div class="co-pick"><button class="co-opt ${payMethod === "company" ? "on" : payMethod !== "card" ? "on" : ""}" data-pm="company">회사 자금</button><button class="co-opt ${payMethod === "card" ? "on" : ""}" data-pm="card">STONK Card</button></div>
-    <p class="co-note">회사 자금 ${won(co.companyCash)} · 카드는 Bank 청구 예정으로 누적됩니다.</p></div>
-    <div class="co-grid">${EMPLOYEE_IDS.map((t) => {
+  const cardPay = payMethod === "card";
+  return `<div class="co-card pay-bar"><h3>직원 채용 <span class="co-tag">총 ${empCount(co)}명 근무 중</span></h3>
+    <div class="co-pick"><button class="co-opt ${cardPay ? "" : "on"}" data-pm="company">💵 회사 자금</button><button class="co-opt ${cardPay ? "on" : ""}" data-pm="card">💳 STONK Card</button></div>
+    <p class="co-note">회사 자금 <b>${won(co.companyCash)}</b> · 카드 결제는 Bank 청구로 누적됩니다.</p></div>
+    <div class="co-grid shop-grid">${EMPLOYEE_IDS.map((t) => {
       const p = EMPLOYEES[t], e = (co.employees || {})[t] || { count: 0, level: 1 };
-      return `<div class="co-card emp">
-        <div class="emp-head"><span class="emp-ico">${p.icon}</span><div><b>${p.label}</b><small>${p.effect}</small></div></div>
-        ${row("보유 / 레벨", int(e.count) + "명 · Lv." + Math.max(1, int(e.level)))}
-        ${row("고용비", won(employeeCost(co, t)))}
+      const cnt = int(e.count), lv = Math.max(1, int(e.level)), has = cnt > 0;
+      const v = EMP_VIS[t] || EMP_VIS.dev;
+      return `<div class="co-card staff staff-${v.cls} ${has ? "owned" : ""}">
+        <div class="staff-top">
+          <span class="staff-fig">${avatar({ type: t, level: lv }, { i: 0 })}</span>
+          <div class="staff-id"><b>${p.label}</b><small>${p.effect}</small></div>
+          <span class="staff-count">${has ? `보유 <b>${cnt}</b>명` : "미보유"}</span>
+        </div>
+        <div class="staff-meta">${levelPips(lv)}<span class="staff-lvtxt">Lv.${lv}</span></div>
+        <div class="staff-price"><span>고용</span><b>${won(employeeCost(co, t))}</b></div>
         <div class="co-btnrow">
           <button class="co-btn primary small" data-emp-hire="${t}">고용</button>
-          <button class="co-btn small" data-emp-level="${t}" ${int(e.count) > 0 ? "" : "disabled"}>레벨업 ${won(employeeLevelCost(co, t))}</button>
-          <button class="co-btn ghost small" data-emp-fire="${t}" ${int(e.count) > 0 ? "" : "disabled"}>해고</button>
+          <button class="co-btn small" data-emp-level="${t}" ${has ? "" : "disabled"}>레벨업 ${won(employeeLevelCost(co, t))}</button>
+          <button class="co-btn ghost small" data-emp-fire="${t}" ${has ? "" : "disabled"}>해고</button>
         </div>
       </div>`;
     }).join("")}</div>`;
@@ -516,15 +524,22 @@ function employeesTab() {
 // ── 시설 ──
 function facilitiesTab() {
   const co = state.company; if (!co) return needCompany();
-  return `<div class="co-card"><h3>시설 결제수단</h3>
-    <div class="co-pick"><button class="co-opt ${payMethod !== "card" ? "on" : ""}" data-pm="company">회사 자금</button><button class="co-opt ${payMethod === "card" ? "on" : ""}" data-pm="card">STONK Card</button></div>
-    <p class="co-note">회사 자금 ${won(co.companyCash)}. 시설 레벨이 오르면 본사가 커집니다.</p></div>
-    <div class="co-grid">${FACILITY_IDS.map((t) => {
+  const cardPay = payMethod === "card";
+  return `<div class="co-card pay-bar"><h3>시설 업그레이드 <span class="co-tag">시설 합계 Lv.${facilityTotal(co)}</span></h3>
+    <div class="co-pick"><button class="co-opt ${cardPay ? "" : "on"}" data-pm="company">💵 회사 자금</button><button class="co-opt ${cardPay ? "on" : ""}" data-pm="card">💳 STONK Card</button></div>
+    <p class="co-note">회사 자금 <b>${won(co.companyCash)}</b> · 시설 레벨이 오르면 본사 규모가 커집니다.</p></div>
+    <div class="co-grid shop-grid">${FACILITY_IDS.map((t) => {
       const p = FACILITIES[t], lv = int(((co.facilities || {})[t] || {}).level);
-      return `<div class="co-card fac">
-        <div class="emp-head"><span class="emp-ico">${p.icon}</span><div><b>${p.label} <small class="co-tag">Lv.${lv}</small></b><small>${p.effect}</small></div></div>
-        ${row("업그레이드 비용", won(facilityCost(co, t)))}
-        <button class="co-btn primary small" data-fac-up="${t}">Lv.${lv + 1} 업그레이드</button>
+      const owned = lv > 0;
+      return `<div class="co-card fac fac-${t} ${owned ? "owned" : "locked"}">
+        <div class="staff-top">
+          <span class="fac-ico">${p.icon}</span>
+          <div class="staff-id"><b>${p.label}</b><small>${p.effect}</small></div>
+          <span class="staff-count">${owned ? `Lv.<b>${lv}</b>` : "🔒 미설치"}</span>
+        </div>
+        <div class="staff-meta">${levelPips(lv)}<span class="staff-lvtxt">${owned ? "가동 중" : "잠김"}</span></div>
+        <div class="staff-price"><span>${owned ? `Lv.${lv + 1} 업그레이드` : "설치"}</span><b>${won(facilityCost(co, t))}</b></div>
+        <button class="co-btn primary small full" data-fac-up="${t}">${owned ? `Lv.${lv + 1}로 업그레이드` : "시설 설치"}</button>
       </div>`;
     }).join("")}</div>`;
 }
