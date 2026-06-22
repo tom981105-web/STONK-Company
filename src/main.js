@@ -34,6 +34,7 @@ async function boot() {
     state = await withTimeout(Co.loadState(user.uid), 12000, "회사 데이터 로딩이 지연되고 있습니다");
     render();
     maybeSettleFeed();
+    startLiveEngine();
   } catch (e) { console.error("[company] 로드 실패:", e); fatal("회사 데이터를 불러오지 못했습니다: " + (e && e.message)); }
 }
 // 네트워크 행(hang) 방지: 일정 시간 내 응답이 없으면 거부하여 무한 스피너 대신 에러+다시시도를 보여준다.
@@ -50,6 +51,78 @@ async function act(fn) { if (busy) return; busy = true; try { const m = await fn
 function fieldVal(id) { const el = document.getElementById(id); return el ? Math.floor(Number(el.value) || 0) : 0; }
 function prefersReduced() { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { return false; } }
 function maybeSettleFeed() { if (state && state.settleFeed && state.settleFeed.applied) { const p = state.settleFeed.profit; toast(`실적 정산: ${p >= 0 ? "+" : ""}${won(p)}`, p >= 0 ? "ok" : "warn"); } }
+
+// ════════════ 실시간 타이쿤 엔진 (수익이 live로 차오르는 방치형 루프) ════════════
+// computeSettle 은 lastSettledAt~now 누적 이익을 days 에 선형으로 계산하므로,
+// 매 프레임 now=Date.now() 로 다시 부르면 실제 정산 지급액과 100% 일치하게 부드럽게 증가한다.
+function liveRatesFor(co, ev) {
+  if (!co) return { perSec: 0, accrued: 0, perDay: 0 };
+  const last = int(co.lastSettledAt) || Date.now();
+  let day = { applied: false }, nowP = { applied: false };
+  try { day = Co.computeSettle(co, last + 86400000, ev); } catch (_) {}
+  try { nowP = Co.computeSettle(co, Date.now(), ev); } catch (_) {}
+  return {
+    perSec: day.applied ? day.profit / 86400 : 0,
+    perDay: day.applied ? day.profit : 0,
+    accrued: nowP.applied ? nowP.profit : 0,
+  };
+}
+let liveTimer = null, coinTimer = null;
+function startLiveEngine() {
+  if (liveTimer) return;
+  const tick = () => {
+    if (!state || !state.company || tab !== "dashboard" || photoMode) return;
+    const r = liveRatesFor(state.company, state.event);
+    const sign = r.accrued >= 0 ? "+" : "−";
+    const amtEl = document.getElementById("collectAmt");
+    if (amtEl) amtEl.textContent = sign + won(Math.abs(Math.round(r.accrued)));
+    const rateEl = document.getElementById("hudRate");
+    if (rateEl) { rateEl.textContent = (r.perSec >= 0 ? "+" : "−") + won(Math.abs(r.perSec)) + "/초"; rateEl.className = "hud-b " + (r.perSec >= 0 ? "up" : "down"); }
+    const btn = document.getElementById("collectBtn");
+    if (btn) { const ready = Math.abs(r.accrued) >= Math.max(1000, Math.abs(r.perSec) * 8); btn.classList.toggle("ready", ready && r.accrued > 0); btn.classList.toggle("loss", r.accrued < 0); }
+  };
+  liveTimer = setInterval(tick, 150);
+  // 일하는 책상/직원에서 코인이 톡톡 떠오르는 연출(수익률 양수일 때만)
+  coinTimer = setInterval(() => {
+    if (prefersReduced() || !state || !state.company || tab !== "dashboard" || photoMode) return;
+    const r = liveRatesFor(state.company, state.event); if (r.perSec <= 0) return;
+    spawnOfficeCoin();
+  }, 1100);
+}
+function spawnOfficeCoin() {
+  try {
+    const stage = document.querySelector(".office-stage"); if (!stage) return;
+    const busy = stage.querySelectorAll(".furn.desk.busy, .emp");
+    const src = busy.length ? busy[Math.floor(Math.random() * busy.length)] : null;
+    const sl = src ? parseFloat(src.style.left) : 30 + Math.random() * 40;
+    const st = src ? parseFloat(src.style.top) : 20 + Math.random() * 40;
+    const c = document.createElement("div");
+    c.className = "office-coin";
+    c.textContent = "🪙";
+    c.style.left = (isFinite(sl) ? sl : 40) + "%";
+    c.style.top = (isFinite(st) ? st : 40) + "%";
+    stage.appendChild(c);
+    setTimeout(() => c.remove(), 1300);
+  } catch (_) {}
+}
+// 수금 성공 시 코인 분수 버스트
+function coinBurst(good) {
+  try {
+    const stage = document.querySelector(".office-stage"); if (!stage || prefersReduced()) return;
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const c = document.createElement("div");
+      c.className = "office-coin burst " + (good ? "" : "bad");
+      c.textContent = good ? "🪙" : "💸";
+      c.style.left = "50%"; c.style.top = "62%";
+      c.style.setProperty("--bx", (Math.random() * 2 - 1).toFixed(2));
+      c.style.setProperty("--by", (-0.6 - Math.random() * 0.8).toFixed(2));
+      c.style.animationDelay = (i * 0.025) + "s";
+      stage.appendChild(c);
+      setTimeout(() => c.remove(), 1200);
+    }
+  } catch (_) {}
+}
 
 function renderLoading() { app.innerHTML = `<div class="co-center"><div class="co-spin"></div><p>STONK Company 연결 중…</p></div>`; }
 function fatal(m) {
@@ -138,16 +211,28 @@ function dashboardTab() {
   const bl = bank.businessLoan || {};
   const owed = int(bl.principal) + int(bl.interest);
   if (photoMode) return photoView(co, bank);
+  const rates = liveRatesFor(co, state.event);
   return `${eventBanner()}
     <div class="co-grid">
-      <div class="co-card span2 office-card">
-        <h3>라이브 오피스 <span class="co-tag">${SECTORS[co.sector].icon} ${SECTORS[co.sector].label} · ${STAGE_LABEL[co.stage]}</span>
+      <div class="co-card span2 office-card game">
+        <div class="tycoon-hud">
+          <div class="hud-item"><span>회사 자금</span><b id="hudCash" class="hud-b">${won(co.companyCash)}</b></div>
+          <div class="hud-item"><span>⚡ 수익/초</span><b id="hudRate" class="hud-b ${rates.perSec >= 0 ? "up" : "down"}">${rates.perSec >= 0 ? "+" : "−"}${won(Math.abs(rates.perSec))}/초</b></div>
+          <div class="hud-item"><span>회사 가치</span><b id="hudValue" class="hud-b">${won(co.companyValue)}</b></div>
+        </div>
+        <h3>라이브 오피스 <span class="co-tag live"><i class="live-dot"></i> LIVE</span> <span class="co-tag">${SECTORS[co.sector].icon} ${SECTORS[co.sector].label} · ${STAGE_LABEL[co.stage]}</span>
           <button class="co-btn ghost small" data-act="photo" style="float:right">📷 스냅샷</button></h3>
         ${liveOffice(co, bank)}
+        <div class="collect-bar">
+          <button class="co-btn collect ${rates.accrued > 0 ? "ready" : ""} ${rates.accrued < 0 ? "loss" : ""}" data-act="settle" id="collectBtn" aria-label="수금하기">
+            <span class="collect-coin">💰</span>
+            <span class="collect-text"><b>수금하기</b><small>실시간 누적 수익을 회사 자금으로</small></span>
+            <span class="collect-amt" id="collectAmt">${rates.accrued >= 0 ? "+" : "−"}${won(Math.abs(Math.round(rates.accrued)))}</span>
+          </button>
+        </div>
         <div class="co-quick">
-          <button class="co-btn primary" data-act="settle">📊 실적 정산</button>
-          <button class="co-btn" data-tab="employees">👥 직원</button>
-          <button class="co-btn" data-tab="facilities">🏗️ 시설</button>
+          <button class="co-btn" data-tab="employees">👥 직원 채용</button>
+          <button class="co-btn" data-tab="facilities">🏗️ 시설 확장</button>
           ${ns ? `<button class="co-btn gold" data-act="promote">⬆️ ${STAGE_LABEL[ns]} 승급</button>` : ""}
         </div>
       </div>
@@ -637,7 +722,7 @@ async function doSettle() {
   try {
     await Co.settleNow(state.uid, state);
     await reload();
-    if (preview && preview.applied) { showSettleResult(preview); officeFloat((preview.profit >= 0 ? "+" : "−") + won(Math.abs(preview.profit)), preview.profit >= 0); }
+    if (preview && preview.applied) { coinBurst(preview.profit >= 0); showSettleResult(preview); officeFloat((preview.profit >= 0 ? "+" : "−") + won(Math.abs(preview.profit)), preview.profit >= 0); }
     else toast("정산 완료", "ok");
   } catch (e) { toast((e && e.message) || "정산할 내용이 없습니다.", "err"); }
   finally { busy = false; }
