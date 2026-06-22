@@ -31,10 +31,15 @@ async function boot() {
   if (!user) { showHomeGate({ message: "STONK Home에서 로그인 후 이용해 주세요. 같은 계정의 자산이 그대로 연결됩니다." }); renderGate(); return; }
   try {
     isAdmin = user.uid === ADMIN_UID || String(user.email || "").toLowerCase() === "tomem@naver.com";
-    state = await Co.loadState(user.uid);
+    state = await withTimeout(Co.loadState(user.uid), 12000, "회사 데이터 로딩이 지연되고 있습니다");
     render();
     maybeSettleFeed();
   } catch (e) { console.error("[company] 로드 실패:", e); fatal("회사 데이터를 불러오지 못했습니다: " + (e && e.message)); }
+}
+// 네트워크 행(hang) 방지: 일정 시간 내 응답이 없으면 거부하여 무한 스피너 대신 에러+다시시도를 보여준다.
+function withTimeout(promise, ms, label) {
+  let t; const guard = new Promise((_, rej) => { t = setTimeout(() => rej(new Error((label || "요청") + " (시간 초과 — 네트워크/로그인 상태를 확인해 주세요)")), ms); });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(t));
 }
 async function reload() { if (!state) return; try { state = await Co.loadState(state.uid); } catch (e) { console.warn(e); } render(); }
 
@@ -47,7 +52,12 @@ function prefersReduced() { try { return window.matchMedia("(prefers-reduced-mot
 function maybeSettleFeed() { if (state && state.settleFeed && state.settleFeed.applied) { const p = state.settleFeed.profit; toast(`실적 정산: ${p >= 0 ? "+" : ""}${won(p)}`, p >= 0 ? "ok" : "warn"); } }
 
 function renderLoading() { app.innerHTML = `<div class="co-center"><div class="co-spin"></div><p>STONK Company 연결 중…</p></div>`; }
-function fatal(m) { app.innerHTML = `<div class="co-center"><h2>⚠️ 오류</h2><p>${esc(m)}</p><a class="co-btn primary" href="../STONK-Home/index.html">STONK Home으로</a></div>`; }
+function fatal(m) {
+  app.innerHTML = `<div class="co-center"><h2>⚠️ 연결 문제</h2><p>${esc(m)}</p>
+    <div class="co-btnrow" style="max-width:320px"><button class="co-btn primary" id="coRetry">다시 시도</button><a class="co-btn" href="../STONK-Home/index.html">STONK Home으로</a></div>
+    <p class="co-note">로그인 세션이 만료됐을 수 있습니다. STONK Home에서 다시 로그인하면 해결되는 경우가 많습니다.</p></div>`;
+  const r = document.getElementById("coRetry"); if (r) r.onclick = () => boot();
+}
 function renderGate() { app.innerHTML = `<div class="co-center"><div class="co-logo"><span class="co-mark">🏢</span><b>STONK</b> Company</div><h2>로그인이 필요합니다</h2><p class="muted">STONK Home에서 로그인 후 이용해 주세요.</p><a class="co-btn primary" href="../STONK-Home/index.html">STONK Home으로 이동</a></div>`; }
 
 // ── 메인 렌더 ──
