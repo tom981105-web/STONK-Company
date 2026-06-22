@@ -292,8 +292,8 @@ s { opacity: .6; }
 @keyframes rkled { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 .racks.hot { filter: drop-shadow(0 0 6px rgba(54,211,153,.4)); }
 /* 화이트보드 + 회의테이블 */
-.whiteboard { width: 40px; height: 26px; border-radius: 4px; background: linear-gradient(180deg,#eef3f7,#cfd8e0); border: 2px solid #2a3a46; position: relative; }
-.whiteboard .wb-line { position: absolute; left: 5px; right: 8px; top: 7px; height: 2px; background: #5b8cff; border-radius: 2px; } .whiteboard .wb-line.s { top: 13px; right: 16px; background: #36d399; }
+.whiteboard { width: 38px; height: 24px; border-radius: 4px; background: linear-gradient(180deg,#1a2a36,#11202a); border: 1px solid #34506a; box-shadow: inset 0 0 8px rgba(91,140,255,.18); position: relative; }
+.whiteboard .wb-line { position: absolute; left: 5px; right: 8px; top: 7px; height: 2px; background: #5b8cff; border-radius: 2px; opacity: .85; } .whiteboard .wb-line.s { top: 13px; right: 16px; background: #36d399; }
 .whiteboard.ipo .wb-graph { position: absolute; right: 5px; bottom: 4px; width: 12px; height: 10px; background: linear-gradient(45deg, transparent 48%, #f2566a 48% 52%, transparent 52%); }
 .mtable { width: 34px; height: 12px; border-radius: 7px; background: linear-gradient(180deg,#3a4a44,#28332e); margin-top: 4px; }
 /* 연구소 */
@@ -399,3 +399,26 @@ s { opacity: .6; }
 @media (prefers-reduced-motion: reduce) {
   .live-dot, .co-btn.collect.ready, .co-btn.collect.ready::after, .office-coin, .office-stage .act-walking, .office-stage .act-walking .emp-arm { animation: none !important; }
 }
+
+/* ── HUD 보조/목표/ROI ── */
+.tycoon-hud .hud-sub { display: block; font-size: 10px; font-weight: 700; font-style: normal; color: var(--muted); margin-top: 2px; }
+.goals-card.ready { border-color: #3a2f12; box-shadow: inset 0 0 0 1px rgba(232,200,122,.22); }
+.goals-card h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.goals-card .goal-to { color: var(--gold); }
+.goals-card .goal-pct { margin-left: auto; font-size: 13px; font-weight: 900; color: var(--text2); }
+.goal-track { height: 9px; border-radius: 999px; background: var(--bg2); border: 1px solid var(--border); overflow: hidden; margin: 4px 0 12px; }
+.goal-track > span { display: block; height: 100%; background: linear-gradient(90deg,#5b8cff,#36d399); transition: width .5s; }
+.goal-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.goal-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.goal-item[data-tab] { cursor: pointer; } .goal-item[data-tab]:hover { border-color: var(--green); }
+.goal-item.done { border-color: #2f6b52; }
+.gi-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 6px; }
+.gi-top span { color: var(--text2); } .gi-top b { color: var(--text); white-space: nowrap; font-size: 12px; }
+.gi-bar { height: 5px; border-radius: 999px; background: #0d1216; overflow: hidden; }
+.gi-bar > span { display: block; height: 100%; background: linear-gradient(90deg,#5b8cff,#36d399); transition: width .5s; }
+.goal-item.done .gi-bar > span { background: var(--green); }
+.staff-meta { flex-wrap: wrap; }
+.roi { margin-left: auto; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.roi.up { color: #06140d; background: linear-gradient(135deg,#6ee7b0,#2aa377); }
+.roi.soft { color: var(--text2); background: rgba(255,255,255,.05); border: 1px solid var(--border); }
+@media (max-width: 760px) { .goal-list { grid-template-columns: 1fr; } }

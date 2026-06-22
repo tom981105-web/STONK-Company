@@ -63,9 +63,66 @@ function liveRatesFor(co, ev) {
   try { nowP = Co.computeSettle(co, Date.now(), ev); } catch (_) {}
   return {
     perSec: day.applied ? day.profit / 86400 : 0,
+    perHour: day.applied ? day.profit / 24 : 0,
     perDay: day.applied ? day.profit : 0,
     accrued: nowP.applied ? nowP.profit : 0,
   };
+}
+// 투자 효과 미리보기: 직원/시설 1단계 추가 시 수익/초 변화량(경제 모델 그대로 재계산)
+function cloneCo(co) { try { return JSON.parse(JSON.stringify(co)); } catch (_) { return { ...co }; } }
+function perSecOf(co, ev) { return liveRatesFor(co, ev).perSec; }
+function hireDeltaPerSec(co, ev, type) {
+  const base = perSecOf(co, ev);
+  const c2 = cloneCo(co); c2.employees = c2.employees || {};
+  const e = c2.employees[type] || { count: 0, level: 1 }; e.count = int(e.count) + 1; e.level = Math.max(1, int(e.level)); c2.employees[type] = e;
+  return perSecOf(c2, ev) - base;
+}
+function facDeltaPerSec(co, ev, type) {
+  const base = perSecOf(co, ev);
+  const c2 = cloneCo(co); c2.facilities = c2.facilities || {};
+  const f = c2.facilities[type] || { level: 0 }; f.level = int(f.level) + 1; c2.facilities[type] = f;
+  c2.companyValue = int(c2.companyValue) + Math.floor(Co.facilityCost(co, type) * 0.4); // 시설은 회사가치도 올림
+  return perSecOf(c2, ev) - base;
+}
+// 역할별 투자 효과 한 줄(수익/초에 직접 영향 주면 +₩/초, 아니면 정성 효과)
+function roiLine(deltaPerSec, effectText) {
+  if (deltaPerSec >= 1) return `<span class="roi up">수익/초 ▲ +${won(Math.round(deltaPerSec))}</span>`;
+  return `<span class="roi soft">${esc(effectText)} ▲</span>`;
+}
+// 다음 단계 목표(승급 조건) 진행도
+function stageGoals(co, bank) {
+  const v = co.companyValue, emp = Co.empCount(co), fac = Co.facilityTotal(co), ipo = co.ipoReadiness;
+  const P = (cur, need) => Math.max(0, Math.min(100, Math.round((num(cur) / need) * 100)));
+  const grade = Co.gradeFromScore((bank && bank.creditScore) != null ? bank.creditScore : 60);
+  const defs = {
+    STARTUP: { to: "SMALL_BIZ", items: [
+      { label: "회사 가치 5천만원", pct: P(v, 50000000), text: `${won(v)} / 5천만` },
+      { label: "직원 3명", pct: P(emp, 3), text: `${emp} / 3명`, tab: "employees" },
+      { label: "시설 합계 Lv.2", pct: P(fac, 2), text: `Lv.${fac} / 2`, tab: "facilities" },
+    ]},
+    SMALL_BIZ: { to: "SCALE_UP", items: [
+      { label: "회사 가치 2억원", pct: P(v, 200000000), text: `${won(v)} / 2억` },
+      { label: "브랜드 30", pct: P(co.brandScore, 30), text: `${int(co.brandScore)} / 30`, tab: "facilities" },
+      { label: "최근 순이익 1천만원", pct: P(co.lastProfit, 10000000), text: `${won(co.lastProfit)} / 1천만` },
+    ]},
+    SCALE_UP: { to: "ENTERPRISE", items: [
+      { label: "회사 가치 10억원", pct: P(v, 1000000000), text: `${won(v)} / 10억` },
+      { label: "직원 20명", pct: P(emp, 20), text: `${emp} / 20명`, tab: "employees" },
+      { label: "브랜드 60", pct: P(co.brandScore, 60), text: `${int(co.brandScore)} / 60`, tab: "facilities" },
+    ]},
+    ENTERPRISE: { to: "PRE_IPO", items: [
+      { label: "회사 가치 50억원", pct: P(v, 5000000000), text: `${won(v)} / 50억` },
+      { label: "IPO 준비도 70%", pct: P(ipo, 70), text: `${int(ipo)} / 70%`, tab: "ipo" },
+      { label: "리스크 40 이하", pct: co.riskScore <= 40 ? 100 : Math.max(0, 100 - (co.riskScore - 40) * 3), text: `${int(co.riskScore)} (목표 ≤40)`, tab: "facilities" },
+    ]},
+    PRE_IPO: { to: "LISTED", items: [
+      { label: "IPO 준비도 100%", pct: P(ipo, 100), text: `${int(ipo)} / 100%`, tab: "ipo" },
+      { label: "신용등급 B 이상", pct: ({ S: 100, A: 100, B: 100, C: 60, D: 30, F: 0 })[grade] || 0, text: `현재 ${grade}` },
+    ]},
+  };
+  const d = defs[co.stage]; if (!d) return null;
+  const overall = Math.round(d.items.reduce((a, x) => a + x.pct, 0) / d.items.length);
+  return { toLabel: STAGE_LABEL[d.to], items: d.items, overall };
 }
 let liveTimer = null, coinTimer = null;
 function startLiveEngine() {
@@ -77,7 +134,9 @@ function startLiveEngine() {
     const amtEl = document.getElementById("collectAmt");
     if (amtEl) amtEl.textContent = sign + won(Math.abs(Math.round(r.accrued)));
     const rateEl = document.getElementById("hudRate");
-    if (rateEl) { rateEl.textContent = (r.perSec >= 0 ? "+" : "−") + won(Math.abs(r.perSec)) + "/초"; rateEl.className = "hud-b " + (r.perSec >= 0 ? "up" : "down"); }
+    if (rateEl) { rateEl.textContent = (r.perHour >= 0 ? "+" : "−") + won(Math.abs(r.perHour)); rateEl.className = "hud-b " + (r.perHour >= 0 ? "up" : "down"); }
+    const rsEl = document.getElementById("hudRateSec");
+    if (rsEl) rsEl.textContent = (r.perSec >= 0 ? "+" : "−") + won(Math.abs(r.perSec)) + "/초";
     const btn = document.getElementById("collectBtn");
     if (btn) { const ready = Math.abs(r.accrued) >= Math.max(1000, Math.abs(r.perSec) * 8); btn.classList.toggle("ready", ready && r.accrued > 0); btn.classList.toggle("loss", r.accrued < 0); }
   };
@@ -217,7 +276,7 @@ function dashboardTab() {
       <div class="co-card span2 office-card game">
         <div class="tycoon-hud">
           <div class="hud-item"><span>회사 자금</span><b id="hudCash" class="hud-b">${won(co.companyCash)}</b></div>
-          <div class="hud-item"><span>⚡ 수익/초</span><b id="hudRate" class="hud-b ${rates.perSec >= 0 ? "up" : "down"}">${rates.perSec >= 0 ? "+" : "−"}${won(Math.abs(rates.perSec))}/초</b></div>
+          <div class="hud-item"><span>⚡ 시간당 수익</span><b id="hudRate" class="hud-b ${rates.perHour >= 0 ? "up" : "down"}">${rates.perHour >= 0 ? "+" : "−"}${won(Math.abs(rates.perHour))}</b><i id="hudRateSec" class="hud-sub">${rates.perSec >= 0 ? "+" : "−"}${won(Math.abs(rates.perSec))}/초</i></div>
           <div class="hud-item"><span>회사 가치</span><b id="hudValue" class="hud-b">${won(co.companyValue)}</b></div>
         </div>
         <h3>라이브 오피스 <span class="co-tag live"><i class="live-dot"></i> LIVE</span> <span class="co-tag">${SECTORS[co.sector].icon} ${SECTORS[co.sector].label} · ${STAGE_LABEL[co.stage]}</span>
@@ -236,6 +295,7 @@ function dashboardTab() {
           ${ns ? `<button class="co-btn gold" data-act="promote">⬆️ ${STAGE_LABEL[ns]} 승급</button>` : ""}
         </div>
       </div>
+      ${goalsCard(co, bank, ns)}
       <div class="co-card office-status">${officeStatusPanel(co, bank)}</div>
       <div class="co-card">
         <h3>경영 지표</h3>
@@ -264,6 +324,23 @@ function dashboardTab() {
         ${(state.logs || []).length ? `<ul class="co-loglist">${state.logs.slice(0, 6).map(logRow).join("")}</ul>` : `<p class="co-empty">아직 활동이 없습니다.</p>`}
       </div>
     </div>`;
+}
+// 다음 목표 카드(승급 조건 진행도) — "지금 뭘 해야 하나"를 명확히
+function goalsCard(co, bank, ns) {
+  if (co.stage === "LISTED") return `<div class="co-card span2 goals-card"><h3>🏆 목표</h3><p class="co-note ok">상장 완료 — 최고 단계에 도달했습니다.</p></div>`;
+  const g = stageGoals(co, bank);
+  if (!g) return "";
+  const ready = ns != null;
+  return `<div class="co-card span2 goals-card ${ready ? "ready" : ""}">
+    <h3>🎯 다음 목표 · <b class="goal-to">${esc(g.toLabel)} 승급</b> <span class="goal-pct">${g.overall}%</span></h3>
+    <div class="goal-track"><span style="width:${g.overall}%"></span></div>
+    <div class="goal-list">${g.items.map((it) => `
+      <div class="goal-item ${it.pct >= 100 ? "done" : ""}" ${it.tab ? `data-tab="${it.tab}" role="button" tabindex="0"` : ""}>
+        <div class="gi-top"><span>${it.pct >= 100 ? "✅" : "⬜"} ${esc(it.label)}</span><b>${esc(it.text)}</b></div>
+        <div class="gi-bar"><span style="width:${it.pct}%"></span></div>
+      </div>`).join("")}</div>
+    ${ready ? `<button class="co-btn gold big" data-act="promote">⬆️ ${esc(g.toLabel)}(으)로 승급하기</button>` : `<p class="co-note">위 조건을 모두 채우면 <b>${esc(g.toLabel)}</b>(으)로 승급할 수 있습니다.</p>`}
+  </div>`;
 }
 function cardStateText(c) { c = c || {}; if (!c.enabled) return "미발급"; if (c.lost) return "분실"; if (c.suspended) return "정지"; if (c.overdue) return "미납"; return "정상"; }
 function sectorMini(s) { const p = SECTORS[s]; return `<div class="co-card sector-mini"><div class="sm-ico">${p.icon}</div><b>${p.label}</b><small>${esc(p.note)}</small></div>`; }
@@ -606,7 +683,7 @@ function employeesTab() {
           <div class="staff-id"><b>${p.label}</b><small>${p.effect}</small></div>
           <span class="staff-count">${has ? `보유 <b>${cnt}</b>명` : "미보유"}</span>
         </div>
-        <div class="staff-meta">${levelPips(lv)}<span class="staff-lvtxt">Lv.${lv}</span></div>
+        <div class="staff-meta">${levelPips(lv)}<span class="staff-lvtxt">Lv.${lv}</span>${roiLine(hireDeltaPerSec(co, state.event, t), p.effect)}</div>
         <div class="staff-price"><span>고용</span><b>${won(employeeCost(co, t))}</b></div>
         <div class="co-btnrow">
           <button class="co-btn primary small" data-emp-hire="${t}">고용</button>
@@ -632,7 +709,7 @@ function facilitiesTab() {
           <div class="staff-id"><b>${p.label}</b><small>${p.effect}</small></div>
           <span class="staff-count">${owned ? `Lv.<b>${lv}</b>` : "🔒 미설치"}</span>
         </div>
-        <div class="staff-meta">${levelPips(lv)}<span class="staff-lvtxt">${owned ? "가동 중" : "잠김"}</span></div>
+        <div class="staff-meta">${levelPips(lv)}<span class="staff-lvtxt">${owned ? "가동 중" : "잠김"}</span>${roiLine(facDeltaPerSec(co, state.event, t), p.effect)}</div>
         <div class="staff-price"><span>${owned ? `Lv.${lv + 1} 업그레이드` : "설치"}</span><b>${won(facilityCost(co, t))}</b></div>
         <button class="co-btn primary small full" data-fac-up="${t}">${owned ? `Lv.${lv + 1}로 업그레이드` : "시설 설치"}</button>
       </div>`;
