@@ -198,7 +198,8 @@ function render() {
   const co = state.company;
   const bank = state.bank || {};
   app.className = bank.vipTier === "BLACK" ? "is-black" : "";
-  const tabs = [["dashboard", "대시보드"], ["company", "회사정보"], ["employees", "직원"], ["facilities", "시설"], ["funds", "자금/Bank"], ["ipo", "IPO"], ["logs", "뉴스/로그"]];
+  const achN = state.company ? Co.achSummary(state.company).claimable : 0;
+  const tabs = [["dashboard", "대시보드"], ["company", "회사정보"], ["employees", "직원"], ["facilities", "시설"], ["funds", "자금/Bank"], ["ipo", "IPO"], ["achievements", "도전과제" + (achN > 0 ? ` <i class="tab-dot">${achN}</i>` : "")], ["logs", "뉴스/로그"]];
   app.innerHTML = `
     <header class="co-header">
       <a class="co-brand" href="#" data-home title="STONK Company 메인"><span class="co-mark">🏢</span><b>STONK</b> Company</a>
@@ -226,6 +227,7 @@ function tabBody() {
   if (tab === "facilities") return facilitiesTab();
   if (tab === "funds") return fundsTab();
   if (tab === "ipo") return ipoTab();
+  if (tab === "achievements") return achievementsTab();
   if (tab === "logs") return logsTab();
   return dashboardTab();
 }
@@ -402,14 +404,19 @@ const CTX_BUBBLE = {
 };
 function bubbleText(emp, ctx) { const pool = CTX_BUBBLE[ctx]; if (pool) return pool[(emp._i || 0) % pool.length]; return (EMP_VIS[emp.type] || EMP_VIS.dev).bub; }
 
-// v3.2.1: 미니 타이쿤 캐릭터(머리/몸통/팔 + 직무 배지)
+// v4.1: 걷는 플랫 캐릭터(머리/머리카락/몸통/팔/다리 + 그림자 + 방향전환 + 직무 배지)
 function avatar(emp, opts) {
   opts = opts || {};
   const v = EMP_VIS[emp.type] || EMP_VIS.dev;
   const pos = opts.pos ? `left:${opts.pos.x}%;top:${opts.pos.y}%;` : "";
   return `<div class="emp emp-${v.cls} act-${v.act}${opts.arrive ? " emp-arrive" : ""}${opts.sit ? " sitting" : ""}" style="${pos}--d:${(opts.i % 8) * 0.4}s" data-emp-detail="${emp.type}" role="button" tabindex="0" aria-label="${esc(v.cls)} 직원 상세">
-    <span class="emp-arm la"></span><span class="emp-arm ra"></span>
-    <span class="emp-head"></span><span class="emp-body"></span>
+    <span class="emp-shadow"></span>
+    <span class="emp-fig">
+      <span class="emp-leg ll"></span><span class="emp-leg rl"></span>
+      <span class="emp-arm la"></span><span class="emp-arm ra"></span>
+      <span class="emp-body"></span>
+      <span class="emp-head"></span><span class="emp-hair"></span>
+    </span>
     <span class="emp-tag">${v.e}</span>${emp.level > 1 ? `<i class="emp-lv">${emp.level}</i>` : ""}
     ${opts.bubble ? `<span class="emp-bubble">${esc(opts.bubble)}</span>` : ""}
   </div>`;
@@ -761,6 +768,31 @@ function ipoTab() {
            <p class="co-note">IPO 준비도는 회사 가치·브랜드·순이익·시설·직원에서 오르고 리스크·사업대출 연체로 내려갑니다.</p>`}
     </div>`;
 }
+// ── 도전과제 ──
+function achievementsTab() {
+  const co = state.company; if (!co) return needCompany();
+  const list = Co.achStatus(co), s = Co.achSummary(co);
+  const totalReward = Co.ACHIEVEMENTS.reduce((a, x) => a + x.reward, 0);
+  const earned = list.filter((x) => x.claimed).reduce((a, x) => a + x.reward, 0);
+  return `<div class="co-card pay-bar"><h3>도전과제 <span class="co-tag">${s.claimed} / ${s.total} 달성</span>${s.claimable > 0 ? `<span class="co-tag ok" style="margin-left:6px">받을 보상 ${s.claimable}개</span>` : ""}</h3>
+    <div class="goal-track"><span style="width:${Math.round((s.claimed / s.total) * 100)}%"></span></div>
+    <p class="co-note">받은 보상 <b>${won(earned)}</b> / 전체 <b>${won(totalReward)}</b> · 보상은 회사 자금으로 지급됩니다.</p></div>
+    <div class="co-grid shop-grid">${list.map((a) => `
+      <div class="co-card ach ${a.claimed ? "claimed" : a.met ? "ready" : ""}">
+        <div class="staff-top">
+          <span class="ach-ico">${a.icon}</span>
+          <div class="staff-id"><b>${esc(a.label)}</b><small>${esc(a.desc)}</small></div>
+          ${a.claimed ? `<span class="ach-badge done">완료</span>` : a.met ? `<span class="ach-badge hot">달성!</span>` : ""}
+        </div>
+        <div class="gi-bar"><span style="width:${a.pct}%"></span></div>
+        <div class="staff-price"><span>보상</span><b class="ok">+${won(a.reward)}</b></div>
+        ${a.claimed
+          ? `<button class="co-btn ghost small full" disabled>✅ 보상 수령 완료</button>`
+          : a.met
+            ? `<button class="co-btn gold small full" data-ach-claim="${a.id}">🎁 보상 받기</button>`
+            : `<button class="co-btn small full" disabled>${a.cur >= 1000 ? won(a.cur) : a.cur} / ${a.need >= 1000 ? won(a.need) : a.need}</button>`}
+      </div>`).join("")}</div>`;
+}
 // ── 로그 ──
 const LOG_ICON = { found: "🏗️", settle: "📊", invest: "💰", withdraw: "🏧", hire: "👤", fire: "👋", levelup: "⬆️", facility: "🏢", loan: "📝", stage: "🎉", ipo: "🏆" };
 function logRow(l) { return `<li><span class="lg-ico">${LOG_ICON[l.type] || "•"}</span><div class="lg-mid"><b>${esc(l.title)}</b><small>${esc(l.memo || "")}</small></div>${l.amount ? `<b class="lg-amt ${l.amount >= 0 ? "plus" : "minus"}">${l.amount >= 0 ? "+" : "−"}${won(Math.abs(l.amount))}</b>` : ""}</li>`; }
@@ -782,6 +814,7 @@ function bind() {
   app.querySelectorAll("[data-emp-fire]").forEach((b) => b.addEventListener("click", () => act(() => Co.fireEmployee(state.uid, b.dataset.empFire, state))));
   app.querySelectorAll("[data-emp-level]").forEach((b) => b.addEventListener("click", () => act(() => Co.levelUpEmployee(state.uid, b.dataset.empLevel, state, payMethod === "card" ? "card" : "company"))));
   app.querySelectorAll("[data-fac-up]").forEach((b) => b.addEventListener("click", () => upgradeWithAnim(b.dataset.facUp)));
+  app.querySelectorAll("[data-ach-claim]").forEach((b) => b.addEventListener("click", () => act(() => Co.claimAchievement(state.uid, b.dataset.achClaim, state))));
   // v3.2: 라이브 오피스 직원/시설 클릭 상세 + 구역 포커스
   app.querySelectorAll("[data-emp-detail]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); showEmpDetail(b.dataset.empDetail); }));
   app.querySelectorAll("[data-fac-detail]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); showFacDetail(b.dataset.facDetail); }));

@@ -313,29 +313,41 @@ s { opacity: .6; }
 .secpanel.alert { border-color: #f2566a; } .secpanel.alert .sp-led { background: #f2566a; box-shadow: 0 0 7px rgba(242,86,106,.8); animation: secblink .8s steps(2) infinite; }
 @keyframes secblink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
-/* ── 직원 캐릭터(미니 타이쿤) ── */
-.emp { position: relative; width: 30px; height: 42px; z-index: 3; }
+/* ── 직원 캐릭터(v4.1 걷는 플랫 캐릭터: 머리/머리카락/몸통/팔/다리/그림자) ── */
+.emp { position: relative; width: 30px; height: 44px; z-index: 3; }
 .office-stage .emp { position: absolute; cursor: pointer; }
 .office-stage .emp:hover { z-index: 7; } .office-stage .emp:hover .emp-bubble { display: block; }
-.emp-head { position: absolute; left: 50%; transform: translateX(-50%); top: 6px; width: 14px; height: 14px; border-radius: 50%; background: #f0d4b0; border: 1px solid rgba(0,0,0,.25); box-shadow: inset -2px -2px 0 rgba(0,0,0,.08); }
-.emp-body { position: absolute; left: 50%; transform: translateX(-50%); top: 19px; width: 20px; height: 20px; border-radius: 9px 9px 5px 5px; background: #5b8cff; box-shadow: inset 0 2px 0 rgba(255,255,255,.15); }
-.emp-arm { position: absolute; top: 22px; width: 5px; height: 12px; border-radius: 3px; background: #5b8cff; } .emp-arm.la { left: 5px; transform: rotate(12deg); } .emp-arm.ra { right: 5px; transform: rotate(-12deg); }
+.emp-fig { position: absolute; left: 0; right: 0; top: 0; bottom: 0; transform-origin: bottom center; }
+.emp-shadow { position: absolute; left: 50%; transform: translateX(-50%); bottom: 1px; width: 22px; height: 6px; border-radius: 50%; background: rgba(0,0,0,.4); z-index: 0; }
+.emp-head { position: absolute; left: 50%; transform: translateX(-50%); top: 3px; width: 16px; height: 15px; border-radius: 7px; background: #f3d6b0; border: 1px solid rgba(0,0,0,.22); z-index: 3; }
+.emp-hair { position: absolute; left: 50%; transform: translateX(-50%); top: 2px; width: 17px; height: 7px; border-radius: 8px 8px 4px 4px; background: #3a2a22; z-index: 4; }
+.emp-body { position: absolute; left: 50%; transform: translateX(-50%); top: 16px; width: 20px; height: 15px; border-radius: 7px 7px 4px 4px; background: #5b8cff; box-shadow: inset 0 2px 0 rgba(255,255,255,.16); z-index: 2; }
+.emp-arm { position: absolute; top: 18px; width: 5px; height: 12px; border-radius: 3px; background: #5b8cff; transform-origin: top center; z-index: 2; }
+.emp-arm.la { left: 3px; transform: rotate(14deg); } .emp-arm.ra { right: 3px; transform: rotate(-14deg); }
+.emp-leg { position: absolute; top: 30px; width: 6px; height: 11px; border-radius: 3px; background: #2a3a46; transform-origin: top center; z-index: 1; }
+.emp-leg.ll { left: 8px; } .emp-leg.rl { right: 8px; }
 .emp-marketer .emp-body, .emp-marketer .emp-arm { background: #e8c87a; } .emp-sales .emp-body, .emp-sales .emp-arm { background: #36d399; }
 .emp-account .emp-body, .emp-account .emp-arm { background: #9fb4cc; } .emp-risk .emp-body, .emp-risk .emp-arm { background: #f2566a; }
 .emp-researcher .emp-body, .emp-researcher .emp-arm { background: #a878ff; } .emp-ops .emp-body, .emp-ops .emp-arm { background: #6bd0e8; } .emp-brand .emp-body, .emp-brand .emp-arm { background: #ff9ad1; }
-.emp-tag { position: absolute; bottom: 0; right: -2px; font-size: 11px; }
-.emp-lv { position: absolute; top: 2px; right: -2px; font-size: 8px; font-weight: 900; font-style: normal; color: #1a140a; background: #e8c87a; border-radius: 6px; padding: 0 3px; }
-.emp-bubble { display: none; position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 9px; font-weight: 700; color: #d8f5ea; background: rgba(8,14,12,.94); border: 1px solid #2f4a40; border-radius: 7px; padding: 2px 6px; z-index: 8; }
+.emp-tag { position: absolute; bottom: 8px; right: -3px; font-size: 11px; z-index: 5; }
+.emp-lv { position: absolute; top: 0; right: -3px; font-size: 8px; font-weight: 900; font-style: normal; color: #1a140a; background: #e8c87a; border-radius: 6px; padding: 0 3px; z-index: 6; }
+.emp-bubble { display: none; position: absolute; bottom: 46px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 9px; font-weight: 700; color: #d8f5ea; background: rgba(8,14,12,.94); border: 1px solid #2f4a40; border-radius: 7px; padding: 2px 6px; z-index: 8; }
 .emp-bubble::after { content: ""; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); border: 4px solid transparent; border-top-color: rgba(8,14,12,.94); }
 .emp.hl { filter: drop-shadow(0 0 6px rgba(54,211,153,.9)); z-index: 7; }
-/* 행동 */
-.act-typing .emp-arm { animation: armtype .5s ease-in-out infinite alternate; transform-origin: top center; }
-@keyframes armtype { from { transform: rotate(12deg);} to { transform: rotate(20deg);} }
+/* 타이핑(앉은 직원): 팔 토닥 */
+.act-typing .emp-arm { animation: armtype .5s ease-in-out infinite alternate; }
+@keyframes armtype { from { transform: rotate(14deg);} to { transform: rotate(26deg);} }
 .act-typing .emp-arm.ra { animation-delay: .25s; }
-.act-presenting .emp-body, .act-checking .emp-body, .act-researching .emp-body { animation: empsway 2.4s ease-in-out infinite; transform-origin: bottom center; }
-@keyframes empsway { 0%,100% { transform: translateX(-50%) rotate(-3deg);} 50% { transform: translateX(-50%) rotate(3deg);} }
-.act-walking { animation: empbob 2.6s ease-in-out infinite; } @keyframes empbob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-2px);} }
-.emp.sitting .emp-body { top: 21px; height: 17px; } .emp.sitting .emp-arm { top: 24px; }
+/* 발표/점검/연구: 몸 흔들 */
+.act-presenting .emp-fig, .act-checking .emp-fig, .act-researching .emp-fig { animation: empsway 2.4s ease-in-out infinite; }
+@keyframes empsway { 0%,100% { transform: rotate(-3deg);} 50% { transform: rotate(3deg);} }
+/* 걷기: 다리·팔 번갈아(워크사이클) */
+.act-walking .emp-leg.ll, .act-walking .emp-arm.ra { animation: legA .5s ease-in-out infinite alternate; }
+.act-walking .emp-leg.rl, .act-walking .emp-arm.la { animation: legB .5s ease-in-out infinite alternate; }
+@keyframes legA { from { transform: rotate(22deg);} to { transform: rotate(-22deg);} }
+@keyframes legB { from { transform: rotate(-22deg);} to { transform: rotate(22deg);} }
+/* 앉은 직원: 다리 숨김 + 몸 낮춤 */
+.emp.sitting .emp-leg { display: none; } .emp.sitting .emp-body { top: 18px; height: 14px; } .emp.sitting .emp-shadow { width: 16px; opacity: .6; }
 .emp-arrive { animation: empArrive 1s ease; } @keyframes empArrive { 0% { opacity: 0; filter: brightness(2.4); transform: scale(.5) translateY(6px);} 60% { opacity: 1;} 100% { opacity: 1; filter: none; transform: none;} }
 .office.settling .emp-tag { animation: tagpop .5s ease; } @keyframes tagpop { 0%,100% { transform: scale(1);} 50% { transform: scale(1.3);} }
 
@@ -356,7 +368,7 @@ s { opacity: .6; }
   .prop { font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .emp-arrive, .act-typing .emp-arm, .act-presenting .emp-body, .act-checking .emp-body, .act-researching .emp-body, .act-walking, .collab-ring, .fgroup.building, .rack i, .furn.desk.busy .dk-mon, .secpanel.alert .sp-led, .office-float, .office-detail { animation: none !important; }
+  .emp-arrive, .act-typing .emp-arm, .act-presenting .emp-fig, .act-checking .emp-fig, .act-researching .emp-fig, .act-walking, .act-walking .emp-leg, .act-walking .emp-arm, .office-stage .act-walking .emp-fig, .collab-ring, .fgroup.building, .rack i, .furn.desk.busy .dk-mon, .secpanel.alert .sp-led, .office-float, .office-detail { animation: none !important; }
 }
 
 /* ════════════ v4.0 실시간 타이쿤 게임 UI ════════════ */
@@ -390,12 +402,11 @@ s { opacity: .6; }
 @keyframes coinFloat { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.5); } 18% { opacity: 1; transform: translate(-50%, -120%) scale(1.05); } 100% { opacity: 0; transform: translate(-50%, -260%) scale(.85); } }
 .office-coin.burst { font-size: 17px; animation: coinBurst 1.1s cubic-bezier(.2,.7,.3,1) forwards; }
 @keyframes coinBurst { 0% { opacity: 0; transform: translate(-50%,-50%) scale(.4); } 12% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--bx,0) * 160px), calc(-50% + var(--by,-1) * 150px)) scale(1) rotate(calc(var(--bx,0) * 220deg)); } }
-/* 직원 좌우 순찰(진짜 이동) — 기존 empbob 오버라이드 */
+/* 직원 좌우 순찰(진짜 이동) + 진행 방향으로 몸 돌리기 */
 .office-stage .act-walking { animation: empPatrol 6.5s ease-in-out infinite alternate; animation-delay: var(--d); }
-@keyframes empPatrol { 0% { transform: translateX(-16px); } 50% { transform: translateX(2px) translateY(-1px); } 100% { transform: translateX(18px); } }
-.office-stage .act-walking .emp-arm.la { animation: stepArm .6s ease-in-out infinite alternate; }
-.office-stage .act-walking .emp-arm.ra { animation: stepArm .6s ease-in-out .3s infinite alternate; }
-@keyframes stepArm { from { transform: rotate(8deg); } to { transform: rotate(-14deg); } }
+@keyframes empPatrol { 0% { transform: translateX(-16px); } 50% { transform: translateX(2px); } 100% { transform: translateX(18px); } }
+.office-stage .act-walking .emp-fig { animation: empFace 13s linear infinite; }
+@keyframes empFace { 0%,49.9% { transform: scaleX(1); } 50%,99.9% { transform: scaleX(-1); } 100% { transform: scaleX(1); } }
 @media (prefers-reduced-motion: reduce) {
   .live-dot, .co-btn.collect.ready, .co-btn.collect.ready::after, .office-coin, .office-stage .act-walking, .office-stage .act-walking .emp-arm { animation: none !important; }
 }
@@ -422,3 +433,16 @@ s { opacity: .6; }
 .roi.up { color: #06140d; background: linear-gradient(135deg,#6ee7b0,#2aa377); }
 .roi.soft { color: var(--text2); background: rgba(255,255,255,.05); border: 1px solid var(--border); }
 @media (max-width: 760px) { .goal-list { grid-template-columns: 1fr; } }
+
+/* ── 도전과제 ── */
+.tab-dot { font-style: normal; display: inline-block; min-width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: 10px; font-weight: 900; color: #06140d; background: #6ee7b0; border-radius: 999px; margin-left: 3px; padding: 0 4px; }
+.co-card.ach { display: flex; flex-direction: column; gap: 9px; transition: transform .15s, border-color .15s; }
+.co-card.ach.ready { border-color: #e8c87a; box-shadow: inset 0 0 0 1px rgba(232,200,122,.22); }
+.co-card.ach.ready:hover { transform: translateY(-3px); }
+.co-card.ach.claimed { opacity: .72; }
+.ach-ico { width: 44px; height: 44px; flex: none; display: grid; place-items: center; font-size: 24px; border-radius: 12px; background: radial-gradient(120% 100% at 50% 0%, rgba(232,200,122,.16), rgba(255,255,255,.02)); border: 1px solid var(--border); }
+.co-card.ach.claimed .ach-ico { filter: grayscale(.5); }
+.ach-badge { font-size: 10px; font-weight: 900; padding: 3px 8px; border-radius: 999px; white-space: nowrap; align-self: flex-start; }
+.ach-badge.hot { color: #1a140a; background: linear-gradient(135deg,#f0d488,#e0a93f); animation: livePulse 1.4s ease-in-out infinite; }
+.ach-badge.done { color: var(--green); background: rgba(54,211,153,.16); }
+.co-card.ach .gi-bar { height: 6px; }

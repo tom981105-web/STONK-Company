@@ -591,3 +591,58 @@ export async function applyIpo(uid, state) {
   await push(ref(getFirebase().db, `rooms/${ROOM}/companyNews`), { uid, companyName: co.name, type: "ipo", title: `${co.name} 상장 후보 등록`, body: `${co.name}이(가) IPO 심사를 통과해 상장 후보(${ticker})로 등록되었습니다. Battle 종목 편입은 v3.1에서 진행됩니다.`, impact: "up", createdAt: now });
   return `🏆 IPO 상장 후보 등록 완료! (티커 ${ticker})`;
 }
+
+// ════════════ 도전과제(업적) — 기존 지표로 판정, 달성 시 회사자금 1회 보상 ════════════
+// cur/need 로 진행도 표시, reward 는 회사자금(게임머니)으로 지급. 경제 엔진은 건드리지 않는다.
+export const ACHIEVEMENTS = [
+  { id: "firstHire",  icon: "👤", label: "첫 직원 고용",       desc: "직원을 1명 이상 고용", reward: 500000,    cur: (c) => empCount(c),        need: 1 },
+  { id: "team5",      icon: "👥", label: "팀 빌딩",            desc: "직원 5명 달성",       reward: 2000000,   cur: (c) => empCount(c),        need: 5 },
+  { id: "team15",     icon: "🏢", label: "조직 확장",          desc: "직원 15명 달성",      reward: 8000000,   cur: (c) => empCount(c),        need: 15 },
+  { id: "fac5",       icon: "🏗️", label: "시설 투자",          desc: "시설 합계 Lv.5",      reward: 2000000,   cur: (c) => facilityTotal(c),   need: 5 },
+  { id: "fac12",      icon: "🏭", label: "인프라 강자",        desc: "시설 합계 Lv.12",     reward: 6000000,   cur: (c) => facilityTotal(c),   need: 12 },
+  { id: "firstRev",   icon: "📊", label: "첫 매출",            desc: "누적 매출 발생",      reward: 500000,    cur: (c) => (int(c.totalRevenue) > 0 ? 1 : 0), need: 1 },
+  { id: "val1e8",     icon: "💎", label: "가치 1억",           desc: "회사 가치 1억원",     reward: 5000000,   cur: (c) => int(c.companyValue), need: 100000000 },
+  { id: "val1e9",     icon: "👑", label: "가치 10억",          desc: "회사 가치 10억원",    reward: 30000000,  cur: (c) => int(c.companyValue), need: 1000000000 },
+  { id: "brand50",    icon: "✨", label: "인지도 상승",        desc: "브랜드 점수 50",      reward: 3000000,   cur: (c) => int(c.brandScore),  need: 50 },
+  { id: "brand80",    icon: "🌟", label: "톱 브랜드",          desc: "브랜드 점수 80",      reward: 10000000,  cur: (c) => int(c.brandScore),  need: 80 },
+  { id: "risklow",    icon: "🛡️", label: "안정 경영",          desc: "리스크 20 이하",      reward: 3000000,   cur: (c) => (int(c.riskScore) <= 20 ? 1 : 0), need: 1 },
+  { id: "ipo50",      icon: "📈", label: "상장 준비",          desc: "IPO 준비도 50%",      reward: 5000000,   cur: (c) => int(c.ipoReadiness), need: 50 },
+  { id: "ipo100",     icon: "🚀", label: "상장 직전",          desc: "IPO 준비도 100%",     reward: 20000000,  cur: (c) => int(c.ipoReadiness), need: 100 },
+  { id: "stageSmall", icon: "🎉", label: "소기업 승급",        desc: "소기업 단계 도달",    reward: 3000000,   cur: (c) => (stageRank(c.stage) >= 1 ? 1 : 0), need: 1 },
+  { id: "stageEnt",   icon: "🏙️", label: "대기업 승급",        desc: "대기업 단계 도달",    reward: 50000000,  cur: (c) => (stageRank(c.stage) >= 3 ? 1 : 0), need: 1 },
+  { id: "listed",     icon: "🏆", label: "상장 달성",          desc: "IPO 상장 후보 등록",  reward: 200000000, cur: (c) => (c.stage === "LISTED" ? 1 : 0), need: 1 },
+];
+export function achStatus(co) {
+  const claimed = (co && co.upgrades && co.upgrades.ach) || {};
+  return ACHIEVEMENTS.map((a) => {
+    const cur = Math.max(0, int(a.cur(co)));
+    const met = cur >= a.need;
+    return { id: a.id, icon: a.icon, label: a.label, desc: a.desc, reward: a.reward, cur, need: a.need, met, claimed: !!claimed[a.id], pct: clamp(Math.round((cur / a.need) * 100), 0, 100) };
+  });
+}
+export function achSummary(co) {
+  const st = achStatus(co);
+  return { total: st.length, claimed: st.filter((x) => x.claimed).length, claimable: st.filter((x) => x.met && !x.claimed).length };
+}
+export async function claimAchievement(uid, id, state) {
+  if (!state.company) throw new Error("회사가 없습니다.");
+  const def = ACHIEVEMENTS.find((a) => a.id === id);
+  if (!def) throw new Error("알 수 없는 도전과제입니다.");
+  const cur = Math.max(0, int(def.cur(state.company)));
+  if (cur < def.need) throw new Error("아직 달성하지 못했습니다.");
+  if (state.company.upgrades && state.company.upgrades.ach && state.company.upgrades.ach[id]) throw new Error("이미 보상을 받았습니다.");
+  let granted = false;
+  await runTransaction(companyRef(uid), (c) => {
+    if (!c) return c;
+    c.upgrades = c.upgrades || {}; c.upgrades.ach = c.upgrades.ach || {};
+    if (c.upgrades.ach[id]) return; // 동시성: 이미 수령 → 중단
+    c.upgrades.ach[id] = Date.now();
+    c.companyCash = int(c.companyCash) + def.reward;
+    c.updatedAt = Date.now();
+    granted = true;
+    return c;
+  });
+  if (!granted) throw new Error("이미 보상을 받았습니다.");
+  await addLog(uid, logItem("invest", `도전과제 보상 · ${def.label}`, def.reward, "도전과제 달성 보상(회사 자금)"));
+  return `🏅 도전과제 '${def.label}' 보상 ${won(def.reward)} 지급!`;
+}
